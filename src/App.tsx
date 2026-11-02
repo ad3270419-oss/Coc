@@ -156,6 +156,27 @@ export default function App() {
     });
   };
 
+  const resetAllTimes = () => {
+    setBuilders(Array.from({ length: 7 }, () => ({ d: '', h: '', m: '' })));
+    setShowResult(false);
+    setResults([]);
+  };
+
+  const resetBuilderTime = (index: number) => {
+    setBuilders((prev) => {
+      const next = [...prev];
+      next[index] = { d: '', h: '', m: '' };
+      return next;
+    });
+    setShowResult(false);
+  };
+
+  const resetAllValues = () => {
+    resetAllTimes();
+    setPotionsInput('');
+  };
+
+
   const calculateTime = () => {
     const potions = Math.max(0, parseInt(potionsInput, 10) || 0);
     const activeBuildersCount = currentMode === 'single' ? 1 : numBuilders;
@@ -346,6 +367,22 @@ export default function App() {
 
         {/* Time Inputs Container */}
         <div id="time-inputs-container" className="space-y-4">
+          <div className="flex items-center justify-between">
+            <span className="text-xs uppercase tracking-wider text-gray-400 font-semibold">Upgrade Times</span>
+            {builders.slice(0, activeBuildersToRender).some((b) => b.d || b.h || b.m) && (
+              <button
+                type="button"
+                onClick={resetAllTimes}
+                className="text-xs font-semibold text-elixir hover:text-pink-300 transition flex items-center gap-1 cursor-pointer bg-pink-500/10 hover:bg-pink-500/20 px-2.5 py-1 rounded-lg border border-pink-500/20"
+                title="Reset all days, hours, and minutes"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                Reset Times
+              </button>
+            )}
+          </div>
           {Array.from({ length: activeBuildersToRender }, (_, idx) => {
             const i = idx + 1;
             const label =
@@ -353,10 +390,23 @@ export default function App() {
                 ? 'Remaining Upgrade Time'
                 : `Builder ${i} Remaining Time`;
             const builderVal = builders[idx] || { d: '', h: '', m: '' };
+            const hasThisBuilderTime = !!(builderVal.d || builderVal.h || builderVal.m);
 
             return (
               <div key={i} className={i > 1 ? 'pt-2 border-t border-white/10 mt-2' : ''}>
-                <label className="block text-sm text-gray-300 mb-2 font-medium">{label}</label>
+                <div className="flex justify-between items-center mb-2">
+                  <label className="block text-sm text-gray-300 font-medium">{label}</label>
+                  {hasThisBuilderTime && (
+                    <button
+                      type="button"
+                      onClick={() => resetBuilderTime(idx)}
+                      className="text-[11px] text-gray-400 hover:text-elixir transition flex items-center gap-1 px-2 py-0.5 rounded-md hover:bg-white/5 cursor-pointer"
+                      title="Reset this builder's time"
+                    >
+                      ✕ Clear
+                    </button>
+                  )}
+                </div>
                 <div className="grid grid-cols-3 gap-3">
                   <div className="flex flex-col">
                     <input
@@ -407,6 +457,15 @@ export default function App() {
         <div>
           <label className="block text-sm text-gray-300 mb-2 font-medium flex justify-between items-end">
             <span>Potions Used</span>
+            {potionsInput && (
+              <button
+                type="button"
+                onClick={() => setPotionsInput('')}
+                className="text-[11px] text-gray-400 hover:text-elixir transition cursor-pointer"
+              >
+                Clear
+              </button>
+            )}
           </label>
           <div className="relative">
             <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
@@ -425,14 +484,29 @@ export default function App() {
           </div>
         </div>
 
-        {/* Calculate Button */}
-        <button
-          type="button"
-          onClick={calculateTime}
-          className="btn-calculate w-full text-white font-bold text-lg rounded-xl py-4 mt-4 tracking-wide shadow-lg cursor-pointer"
-        >
-          Calculate Finish Time
-        </button>
+        {/* Action Buttons: Calculate + Reset */}
+        <div className="flex gap-2.5 mt-4">
+          <button
+            type="button"
+            onClick={calculateTime}
+            className="btn-calculate flex-1 text-white font-bold text-lg rounded-xl py-4 tracking-wide shadow-lg cursor-pointer"
+          >
+            Calculate Finish Time
+          </button>
+          {builders.slice(0, activeBuildersToRender).some((b) => b.d || b.h || b.m) && (
+            <button
+              type="button"
+              onClick={resetAllTimes}
+              className="glass-input hover:border-pink-500/50 hover:bg-pink-500/10 text-gray-300 hover:text-white px-4 rounded-xl flex flex-col items-center justify-center gap-0.5 transition cursor-pointer"
+              title="Reset all days, hours, and minutes"
+            >
+              <svg className="w-5 h-5 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-300">Reset</span>
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Results Section (Animated) */}

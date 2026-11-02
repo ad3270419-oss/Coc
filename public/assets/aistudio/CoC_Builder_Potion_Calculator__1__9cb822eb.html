@@ -138,10 +138,18 @@
                 </div>
             </div>
 
-            <!-- Calculate Button -->
-            <button onclick="calculateTime()" class="btn-calculate w-full text-white font-bold text-lg rounded-xl py-4 mt-4 tracking-wide shadow-lg">
-                Calculate Finish Time
-            </button>
+            <!-- Calculate & Reset Buttons -->
+            <div class="flex gap-2.5 mt-4">
+                <button onclick="calculateTime()" class="btn-calculate flex-1 text-white font-bold text-lg rounded-xl py-4 tracking-wide shadow-lg cursor-pointer">
+                    Calculate Finish Time
+                </button>
+                <button onclick="resetAllTimes()" class="glass-input hover:border-pink-500/50 hover:bg-pink-500/10 text-gray-300 hover:text-white px-4 rounded-xl flex flex-col items-center justify-center gap-0.5 transition cursor-pointer" title="Reset all added days, hours, and minutes">
+                    <svg class="w-5 h-5 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                    <span class="text-[10px] font-semibold uppercase tracking-wider text-gray-300">Reset</span>
+                </button>
+            </div>
         </div>
 
         <!-- Results Section (Animated) -->
@@ -223,7 +231,10 @@
                 const div = document.createElement('div');
                 div.className = i > 1 ? 'pt-2 border-t border-white/10 mt-2' : '';
                 div.innerHTML = `
-                    <label class="block text-sm text-gray-300 mb-2 font-medium">${label}</label>
+                    <div class="flex justify-between items-center mb-2">
+                        <label class="block text-sm text-gray-300 font-medium">${label}</label>
+                        <button type="button" onclick="resetBuilder(${i})" class="text-[11px] text-gray-400 hover:text-elixir transition px-2 py-0.5 rounded-md hover:bg-white/5 cursor-pointer">✕ Clear</button>
+                    </div>
                     <div class="grid grid-cols-3 gap-3">
                         <div class="flex flex-col">
                             <input type="number" id="input-d-${i}" value="${existingValues[i-1].d}" placeholder="0" min="0" class="glass-input w-full rounded-xl py-3 px-2 text-center text-xl font-semibold placeholder-gray-500">
@@ -241,6 +252,25 @@
                 `;
                 container.appendChild(div);
             }
+        }
+
+        function resetBuilder(i) {
+            const d = document.getElementById(`input-d-${i}`);
+            const h = document.getElementById(`input-h-${i}`);
+            const m = document.getElementById(`input-m-${i}`);
+            if (d) d.value = '';
+            if (h) h.value = '';
+            if (m) m.value = '';
+            document.getElementById('results-container').classList.add('hidden-result');
+            document.getElementById('results-container').classList.remove('show-result');
+        }
+
+        function resetAllTimes() {
+            for (let i = 1; i <= 7; i++) {
+                resetBuilder(i);
+            }
+            document.getElementById('results-container').classList.add('hidden-result');
+            document.getElementById('results-container').classList.remove('show-result');
         }
 
         function calcRealTime(totalBuilderHours, potions) {

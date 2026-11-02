@@ -11,12 +11,12 @@ interface BuilderTime {
   m: string;
 }
 
-interface CalculatedItem {
+interface LockedResultItem {
+  builderIndex: number;
   builderLabel: string;
+  isGoblin: boolean;
+  targetTimestamp: number;
   formattedDate: string;
-  realDays: number;
-  realHours: number;
-  realMins: number;
 }
 
 interface SavedState {
@@ -24,9 +24,12 @@ interface SavedState {
   numBuilders: number;
   builders: BuilderTime[];
   potions: string;
+  lockedResults?: LockedResultItem[];
+  lockedSavedText?: string;
 }
 
-const STORAGE_KEY = 'coc_builder_potion_saved_v1';
+const STORAGE_KEY = 'coc_builder_potion_saved_v2';
+const LEGACY_STORAGE_KEY = 'coc_builder_potion_saved_v1';
 
 const DEFAULT_BUILDERS: BuilderTime[] = Array.from({ length: 7 }, () => ({
   d: '',
@@ -34,15 +37,27 @@ const DEFAULT_BUILDERS: BuilderTime[] = Array.from({ length: 7 }, () => ({
   m: '',
 }));
 
+export function triggerHaptic(duration = 12) {
+  try {
+    if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+      navigator.vibrate(duration);
+    }
+  } catch {
+    // Ignore vibration errors on unsupported devices
+  }
+}
+
 function loadSavedState(): SavedState {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(STORAGE_KEY) || localStorage.getItem(LEGACY_STORAGE_KEY);
     if (!raw) {
       return {
         mode: 'single',
         numBuilders: 2,
         builders: DEFAULT_BUILDERS,
         potions: '',
+        lockedResults: [],
+        lockedSavedText: '',
       };
     }
     const parsed = JSON.parse(raw) as Partial<SavedState>;
@@ -59,6 +74,8 @@ function loadSavedState(): SavedState {
           : 2,
       builders,
       potions: typeof parsed.potions === 'string' ? parsed.potions : '',
+      lockedResults: Array.isArray(parsed.lockedResults) ? parsed.lockedResults : [],
+      lockedSavedText: typeof parsed.lockedSavedText === 'string' ? parsed.lockedSavedText : '',
     };
   } catch {
     return {
@@ -66,6 +83,8 @@ function loadSavedState(): SavedState {
       numBuilders: 2,
       builders: DEFAULT_BUILDERS,
       potions: '',
+      lockedResults: [],
+      lockedSavedText: '',
     };
   }
 }
@@ -81,6 +100,50 @@ function calcRealTime(totalBuilderHours: number, potions: number): number {
   }
 }
 
+function formatCountdown(remainingMs: number): {
+  isFinished: boolean;
+  days: number;
+  hours: number;
+  mins: number;
+  secs: number;
+  statusText: string;
+} {
+  if (remainingMs <= 0) {
+    return {
+      isFinished: true,
+      days: 0,
+      hours: 0,
+      mins: 0,
+      secs: 0,
+      statusText: 'Finished! Builder Free',
+    };
+  }
+
+  const totalSeconds = Math.ceil(remainingMs / 1000);
+  const days = Math.floor(totalSeconds / 86400);
+  const hours = Math.floor((totalSeconds % 86400) / 3600);
+  const mins = Math.floor((totalSeconds % 3600) / 60);
+  const secs = totalSeconds % 60;
+
+  const parts: string[] = [];
+  if (days > 0) parts.push(`${days}d`);
+  if (hours > 0 || days > 0) parts.push(`${hours}h`);
+  if (mins > 0 || hours > 0 || days > 0) {
+    parts.push(`${mins}m`);
+  } else {
+    parts.push(`${secs}s`);
+  }
+
+  return {
+    isFinished: false,
+    days,
+    hours,
+    mins,
+    secs,
+    statusText: `Time left: ${parts.join(' ')} remaining`,
+  };
+}
+
 export default function App() {
   const initial = loadSavedState();
   const [currentMode, setCurrentMode] = useState<'single' | 'multi'>(initial.mode);
@@ -88,12 +151,27 @@ export default function App() {
   const [builders, setBuilders] = useState<BuilderTime[]>(initial.builders);
   const [potionsInput, setPotionsInput] = useState<string>(initial.potions);
 
-  const [results, setResults] = useState<CalculatedItem[]>([]);
-  const [savedText, setSavedText] = useState<string>('');
-  const [showResult, setShowResult] = useState<boolean>(false);
+  const [lockedResults, setLockedResults] = useState<LockedResultItem[]>(
+    initial.lockedResults || []
+  );
+  const [savedText, setSavedText] = useState<string>(initial.lockedSavedText || '');
+  const [showResult, setShowResult] = useState<boolean>(
+    () => (initial.lockedResults?.length ?? 0) > 0
+  );
   const [animKey, setAnimKey] = useState<number>(0);
+  const [nowMs, setNowMs] = useState<number>(() => Date.now());
 
-  // Save last put items automatically to localStorage
+  // Live 1-second ticker for locked targetTimestamp countdowns
+  useEffect(() => {
+    if (!showResult || lockedResults.length === 0) return;
+    setNowMs(Date.now());
+    const interval = window.setInterval(() => {
+      setNowMs(Date.now());
+    }, 1000);
+    return () => window.clearInterval(interval);
+  }, [showResult, lockedResults]);
+
+  // Save state + locked finish timestamps automatically to localStorage
   useEffect(() => {
     try {
       const stateToSave: SavedState = {
@@ -101,14 +179,16 @@ export default function App() {
         numBuilders,
         builders,
         potions: potionsInput,
+        lockedResults,
+        lockedSavedText: savedText,
       };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(stateToSave));
     } catch {
       // Ignore storage quota errors
     }
-  }, [currentMode, numBuilders, builders, potionsInput]);
+  }, [currentMode, numBuilders, builders, potionsInput, lockedResults, savedText]);
 
-  // Listen for storage changes across windows
+  // Sync across tabs/pop-up windows
   useEffect(() => {
     const handleStorage = (e: StorageEvent) => {
       if (e.key === STORAGE_KEY && e.newValue) {
@@ -117,6 +197,9 @@ export default function App() {
         setNumBuilders(synced.numBuilders);
         setBuilders(synced.builders);
         setPotionsInput(synced.potions);
+        setLockedResults(synced.lockedResults || []);
+        setSavedText(synced.lockedSavedText || '');
+        setShowResult((synced.lockedResults?.length ?? 0) > 0);
       }
     };
 
@@ -127,8 +210,16 @@ export default function App() {
   }, []);
 
   const setMode = (mode: 'single' | 'multi') => {
+    triggerHaptic();
     setCurrentMode(mode);
-    setShowResult(false);
+  };
+
+  const handleBuilderCountChange = (nextCount: number) => {
+    const clamped = Math.min(7, Math.max(1, nextCount));
+    if (clamped !== numBuilders) {
+      triggerHaptic(8);
+      setNumBuilders(clamped);
+    }
   };
 
   const handleBuilderTimeChange = (index: number, field: keyof BuilderTime, value: string) => {
@@ -158,6 +249,33 @@ export default function App() {
     });
   };
 
+  const applyPresetToBuilder = (
+    index: number,
+    deltaDays: number,
+    deltaHours: number
+  ) => {
+    triggerHaptic();
+    setBuilders((prev) => {
+      const next = [...prev];
+      const current = next[index] || { d: '', h: '', m: '' };
+      const curD = Math.max(0, parseInt(current.d, 10) || 0);
+      const curH = Math.max(0, parseInt(current.h, 10) || 0);
+      const curM = Math.max(0, parseInt(current.m, 10) || 0);
+
+      const totalHours = curH + deltaHours;
+      const extraDaysFromHours = Math.floor(totalHours / 24);
+      const newH = totalHours % 24;
+      const newD = Math.min(999, curD + deltaDays + extraDaysFromHours);
+
+      next[index] = {
+        d: newD > 0 ? String(newD) : current.d !== '' ? '0' : '',
+        h: newH > 0 ? String(newH) : deltaHours > 0 || current.h !== '' ? String(newH) : '',
+        m: curM > 0 ? String(curM) : current.m,
+      };
+      return next;
+    });
+  };
+
   const handlePotionsChange = (value: string) => {
     const digits = value.replace(/\D/g, '');
     if (digits === '') {
@@ -169,26 +287,50 @@ export default function App() {
     setPotionsInput(String(num));
   };
 
+  const adjustPotions = (delta: number) => {
+    triggerHaptic();
+    const cur = Math.max(0, parseInt(potionsInput, 10) || 0);
+    const next = Math.min(999, Math.max(0, cur + delta));
+    setPotionsInput(next === 0 ? '' : String(next));
+  };
+
   const resetAllTimes = () => {
+    triggerHaptic(15);
     setBuilders(Array.from({ length: 7 }, () => ({ d: '', h: '', m: '' })));
+    setLockedResults([]);
+    setSavedText('');
     setShowResult(false);
-    setResults([]);
   };
 
   const resetBuilderTime = (index: number) => {
+    triggerHaptic();
     setBuilders((prev) => {
       const next = [...prev];
       next[index] = { d: '', h: '', m: '' };
       return next;
     });
+    setLockedResults((prev) => {
+      const filtered = prev.filter((item) => item.builderIndex !== index);
+      if (filtered.length === 0) {
+        setShowResult(false);
+      }
+      return filtered;
+    });
+  };
+
+  const unlockAndEditTimers = () => {
+    triggerHaptic();
+    setLockedResults([]);
+    setSavedText('');
     setShowResult(false);
   };
 
   const calculateTime = () => {
+    triggerHaptic(18);
     const potions = Math.max(0, parseInt(potionsInput, 10) || 0);
     const activeBuildersCount = currentMode === 'single' ? 1 : numBuilders;
-    const now = new Date();
-    const computedResults: CalculatedItem[] = [];
+    const calcTimestamp = Date.now();
+    const computedResults: LockedResultItem[] = [];
 
     for (let i = 1; i <= activeBuildersCount; i++) {
       const b = builders[i - 1];
@@ -200,9 +342,10 @@ export default function App() {
       if (totalBuilderHours === 0) continue;
 
       const realTimeHours = calcRealTime(totalBuilderHours, potions);
-      const totalRealMinutes = Math.round(realTimeHours * 60);
+      const realDurationMs = Math.round(realTimeHours * 3600 * 1000);
+      const targetTimestamp = calcTimestamp + realDurationMs;
 
-      const completionDate = new Date(now.getTime() + totalRealMinutes * 60 * 1000);
+      const completionDate = new Date(targetTimestamp);
       const formattedDate = completionDate.toLocaleString('en-US', {
         month: 'short',
         day: 'numeric',
@@ -211,25 +354,26 @@ export default function App() {
         hour12: true,
       });
 
-      const realDays = Math.floor(totalRealMinutes / (24 * 60));
-      const remainMinsAfterDays = totalRealMinutes % (24 * 60);
-      const realHours = Math.floor(remainMinsAfterDays / 60);
-      const realMins = remainMinsAfterDays % 60;
-
-      const builderLabel = currentMode === 'single' ? 'Upgrade' : `Builder ${i}`;
+      const isGoblin = currentMode === 'multi' && i === 7;
+      const builderLabel =
+        currentMode === 'single'
+          ? 'Upgrade'
+          : isGoblin
+          ? 'Goblin Builder'
+          : `Builder ${i}`;
 
       computedResults.push({
+        builderIndex: i - 1,
         builderLabel,
+        isGoblin,
+        targetTimestamp,
         formattedDate,
-        realDays,
-        realHours,
-        realMins,
       });
     }
 
     if (computedResults.length === 0) return;
 
-    const totalSavedHoursAllBuilders = potions * 9 * activeBuildersCount;
+    const totalSavedHoursAllBuilders = potions * 9 * computedResults.length;
     const savedDays = Math.floor(totalSavedHoursAllBuilders / 24);
     const savedHours = totalSavedHoursAllBuilders % 24;
 
@@ -241,9 +385,10 @@ export default function App() {
       if (savedHours > 0 || savedDays === 0) computedSavedText += `${savedHours}h`;
     }
 
-    // Re-trigger exact original slideUpFade animation
+    // Lock target timestamps and trigger slideUpFade animation
     setShowResult(false);
-    setResults(computedResults);
+    setNowMs(calcTimestamp);
+    setLockedResults(computedResults);
     setSavedText(computedSavedText);
     setAnimKey((prev) => prev + 1);
     requestAnimationFrame(() => {
@@ -254,8 +399,8 @@ export default function App() {
   const activeBuildersToRender = currentMode === 'single' ? 1 : numBuilders;
 
   return (
-    <div className="min-h-dvh w-full flex flex-col items-center justify-center p-4 sm:p-6 overflow-y-auto overflow-x-hidden">
-      <div className="glass-card w-full max-w-md rounded-3xl p-6 sm:p-8 relative overflow-hidden my-auto">
+    <div className="min-h-dvh w-full flex flex-col items-center justify-center p-3 sm:p-6 overflow-y-auto overflow-x-hidden">
+      <div className="glass-card w-full max-w-md rounded-3xl p-5 sm:p-8 relative overflow-hidden my-auto">
         {/* Decorative glowing orbs behind the content */}
         <div className="absolute -top-10 -right-10 w-32 h-32 bg-pink-500 rounded-full mix-blend-screen filter blur-[50px] opacity-40 pointer-events-none"></div>
         <div className="absolute -bottom-10 -left-10 w-32 h-32 bg-yellow-500 rounded-full mix-blend-screen filter blur-[50px] opacity-30 pointer-events-none"></div>
@@ -276,10 +421,10 @@ export default function App() {
             id="btn-mode-single"
             type="button"
             onClick={() => setMode('single')}
-            className={`flex-1 py-2 text-sm font-semibold rounded-lg transition-all ${
+            className={`tactile flex-1 py-2.5 text-sm font-bold rounded-lg transition-all cursor-pointer ${
               currentMode === 'single'
                 ? 'bg-white/20 text-white shadow-sm'
-                : 'text-gray-400 hover:text-white'
+                : 'text-gray-300 hover:text-white'
             }`}
           >
             Single Builder
@@ -288,10 +433,10 @@ export default function App() {
             id="btn-mode-multi"
             type="button"
             onClick={() => setMode('multi')}
-            className={`flex-1 py-2 text-sm font-semibold rounded-lg transition-all ${
+            className={`tactile flex-1 py-2.5 text-sm font-bold rounded-lg transition-all cursor-pointer ${
               currentMode === 'multi'
                 ? 'bg-white/20 text-white shadow-sm'
-                : 'text-gray-400 hover:text-white'
+                : 'text-gray-300 hover:text-white'
             }`}
           >
             All Builders
@@ -305,12 +450,37 @@ export default function App() {
             id="multi-builders-config"
             className={`${
               currentMode === 'single' ? 'hidden' : ''
-            } bg-black/20 p-4 rounded-2xl border border-white/5`}
+            } bg-black/30 p-4 rounded-2xl border border-white/10`}
           >
             <div className="flex justify-between items-center mb-3">
-              <label className="text-sm text-gray-300 font-medium">Active Builders</label>
-              <div className="text-gold font-bold bg-black/40 px-3 py-1 rounded-lg shadow-inner">
-                <span id="builders-count-label">{numBuilders}</span> 👷
+              <label className="text-base text-[#f8fafc] font-bold">Active Builders</label>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleBuilderCountChange(numBuilders - 1)}
+                  className="tactile w-7 h-7 rounded-lg bg-white/10 hover:bg-white/20 text-white font-bold flex items-center justify-center cursor-pointer border border-white/10"
+                  aria-label="Decrease builders"
+                >
+                  −
+                </button>
+                <div
+                  className={`font-extrabold bg-black/50 px-3 py-1 rounded-lg shadow-inner border ${
+                    numBuilders === 7
+                      ? 'text-[#22c55e] border-emerald-500/40'
+                      : 'text-[#fbbf24] border-amber-400/20'
+                  }`}
+                >
+                  <span id="builders-count-label">{numBuilders}</span>{' '}
+                  {numBuilders === 7 ? '👺' : '👷'}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleBuilderCountChange(numBuilders + 1)}
+                  className="tactile w-7 h-7 rounded-lg bg-white/10 hover:bg-white/20 text-white font-bold flex items-center justify-center cursor-pointer border border-white/10"
+                  aria-label="Increase builders"
+                >
+                  +
+                </button>
               </div>
             </div>
             <input
@@ -319,22 +489,29 @@ export default function App() {
               min="1"
               max="7"
               value={numBuilders}
-              onChange={(e) => setNumBuilders(parseInt(e.target.value, 10))}
+              onChange={(e) => handleBuilderCountChange(parseInt(e.target.value, 10))}
               className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-[#EC4899]"
             />
+            <div className="flex justify-between text-[11px] font-semibold text-gray-300 mt-2 px-0.5">
+              <span>1 Builder</span>
+              <span>6 Builders</span>
+              <span className={numBuilders === 7 ? 'text-[#22c55e] font-bold' : 'text-emerald-400/80'}>
+                7: Goblin 👺
+              </span>
+            </div>
           </div>
 
           {/* Time Inputs Container */}
           <div id="time-inputs-container" className="space-y-4">
             <div className="flex items-center justify-between">
-              <span className="text-xs uppercase tracking-wider text-gray-400 font-semibold">
-                Upgrade Times
+              <span className="text-xs uppercase tracking-wider text-[#fbbf24] font-extrabold">
+                Upgrade Timers
               </span>
               {builders.slice(0, activeBuildersToRender).some((b) => b.d || b.h || b.m) && (
                 <button
                   type="button"
                   onClick={resetAllTimes}
-                  className="text-xs font-semibold text-elixir hover:text-pink-300 transition flex items-center gap-1 cursor-pointer bg-pink-500/10 hover:bg-pink-500/20 px-2.5 py-1 rounded-lg border border-pink-500/20"
+                  className="tactile text-xs font-bold text-elixir hover:text-pink-300 transition flex items-center gap-1 cursor-pointer bg-pink-500/15 hover:bg-pink-500/25 px-2.5 py-1 rounded-lg border border-pink-500/30"
                   title="Reset all days, hours, and minutes"
                 >
                   <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -345,34 +522,71 @@ export default function App() {
                       d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
                     />
                   </svg>
-                  Reset Times
+                  Reset All
                 </button>
               )}
             </div>
+
             {Array.from({ length: activeBuildersToRender }, (_, idx) => {
               const i = idx + 1;
+              const isGoblin = currentMode === 'multi' && i === 7;
               const label =
                 currentMode === 'single'
                   ? 'Remaining Upgrade Time'
+                  : isGoblin
+                  ? 'Goblin Builder'
                   : `Builder ${i} Remaining Time`;
+              const badgeText =
+                currentMode === 'single'
+                  ? 'UPGRADE'
+                  : isGoblin
+                  ? 'GOBLIN BUILDER'
+                  : `BUILDER #${i}`;
+
               const builderVal = builders[idx] || { d: '', h: '', m: '' };
               const hasThisBuilderTime = !!(builderVal.d || builderVal.h || builderVal.m);
 
               return (
-                <div key={i} className={i > 1 ? 'pt-2 border-t border-white/10 mt-2' : ''}>
-                  <div className="flex justify-between items-center mb-2">
-                    <label className="block text-sm text-gray-300 font-medium">{label}</label>
+                <div
+                  key={i}
+                  className={`rounded-2xl p-4 ${
+                    isGoblin ? 'goblin-card' : 'builder-card'
+                  }`}
+                >
+                  {/* High-Contrast Builder Header + Badge */}
+                  <div className="flex flex-wrap justify-between items-center gap-2 mb-3">
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={`text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-md border ${
+                          isGoblin
+                            ? 'bg-emerald-500/20 text-[#22c55e] border-emerald-400/50'
+                            : 'bg-amber-500/20 text-[#fbbf24] border-amber-400/40'
+                        }`}
+                      >
+                        [{badgeText}]
+                      </span>
+                      <label
+                        className={`text-base font-extrabold tracking-tight ${
+                          isGoblin ? 'text-[#22c55e]' : 'text-[#f8fafc]'
+                        }`}
+                      >
+                        {label} {isGoblin ? '👺' : ''}
+                      </label>
+                    </div>
+
                     {hasThisBuilderTime && (
                       <button
                         type="button"
                         onClick={() => resetBuilderTime(idx)}
-                        className="text-[11px] text-gray-400 hover:text-elixir transition flex items-center gap-1 px-2 py-0.5 rounded-md hover:bg-white/5 cursor-pointer"
-                        title="Reset this builder's time"
+                        className="tactile text-xs font-bold text-gray-200 hover:text-elixir transition flex items-center gap-1 px-2 py-0.5 rounded-md bg-white/10 hover:bg-white/15 cursor-pointer"
+                        title="Clear this builder's time"
                       >
                         ✕ Clear
                       </button>
                     )}
                   </div>
+
+                  {/* Days, Hours, Mins Inputs */}
                   <div className="grid grid-cols-3 gap-3">
                     <div className="flex flex-col">
                       <input
@@ -384,9 +598,13 @@ export default function App() {
                         placeholder="0"
                         min="0"
                         max="999"
-                        className="glass-input w-full rounded-xl py-3 px-2 text-center text-xl font-semibold placeholder-gray-500"
+                        className={`glass-input ${
+                          isGoblin ? 'goblin-input' : ''
+                        } w-full rounded-xl py-3 px-2 text-center text-xl font-bold placeholder-gray-500`}
                       />
-                      <span className="text-xs text-gray-400 text-center mt-1">Days</span>
+                      <span className="text-xs font-semibold text-gray-200 text-center mt-1">
+                        Days
+                      </span>
                     </div>
                     <div className="flex flex-col">
                       <input
@@ -398,9 +616,13 @@ export default function App() {
                         placeholder="0"
                         min="0"
                         max="24"
-                        className="glass-input w-full rounded-xl py-3 px-2 text-center text-xl font-semibold placeholder-gray-500"
+                        className={`glass-input ${
+                          isGoblin ? 'goblin-input' : ''
+                        } w-full rounded-xl py-3 px-2 text-center text-xl font-bold placeholder-gray-500`}
                       />
-                      <span className="text-xs text-gray-400 text-center mt-1">Hours</span>
+                      <span className="text-xs font-semibold text-gray-200 text-center mt-1">
+                        Hours
+                      </span>
                     </div>
                     <div className="flex flex-col">
                       <input
@@ -412,45 +634,101 @@ export default function App() {
                         placeholder="0"
                         min="0"
                         max="60"
-                        className="glass-input w-full rounded-xl py-3 px-2 text-center text-xl font-semibold placeholder-gray-500"
+                        className={`glass-input ${
+                          isGoblin ? 'goblin-input' : ''
+                        } w-full rounded-xl py-3 px-2 text-center text-xl font-bold placeholder-gray-500`}
                       />
-                      <span className="text-xs text-gray-400 text-center mt-1">Mins</span>
+                      <span className="text-xs font-semibold text-gray-200 text-center mt-1">
+                        Mins
+                      </span>
                     </div>
+                  </div>
+
+                  {/* Quick Time Preset Chips */}
+                  <div className="flex flex-wrap items-center gap-1.5 mt-3 pt-2.5 border-t border-white/10">
+                    {[
+                      { label: '+6h', d: 0, h: 6 },
+                      { label: '+12h', d: 0, h: 12 },
+                      { label: '+1d', d: 1, h: 0 },
+                      { label: '+3d', d: 3, h: 0 },
+                      { label: '+5d', d: 5, h: 0 },
+                      { label: '+7d', d: 7, h: 0 },
+                    ].map((preset) => (
+                      <button
+                        key={preset.label}
+                        type="button"
+                        onClick={() => applyPresetToBuilder(idx, preset.d, preset.h)}
+                        className={`tactile text-xs font-bold px-2.5 py-1 rounded-lg border cursor-pointer ${
+                          isGoblin
+                            ? 'bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-200 border-emerald-500/30'
+                            : 'bg-white/10 hover:bg-white/20 text-[#f8fafc] border-white/15'
+                        }`}
+                      >
+                        {preset.label}
+                      </button>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() => resetBuilderTime(idx)}
+                      className="tactile text-xs font-bold px-2.5 py-1 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 ml-auto cursor-pointer"
+                    >
+                      Clear
+                    </button>
                   </div>
                 </div>
               );
             })}
           </div>
 
-          {/* Potions Input */}
-          <div>
-            <label className="block text-sm text-gray-300 mb-2 font-medium flex justify-between items-end">
-              <span>Potions Used</span>
+          {/* Potions Input with Tactile +/- Counter */}
+          <div className="builder-card rounded-2xl p-4">
+            <label className="block text-base text-[#f8fafc] mb-2.5 font-extrabold flex justify-between items-center">
+              <span className="flex items-center gap-2">
+                <span>🧪 Potions Used</span>
+              </span>
               {potionsInput && (
                 <button
                   type="button"
-                  onClick={() => setPotionsInput('')}
-                  className="text-[11px] text-gray-400 hover:text-elixir transition cursor-pointer"
+                  onClick={() => {
+                    triggerHaptic();
+                    setPotionsInput('');
+                  }}
+                  className="tactile text-xs font-bold text-gray-300 hover:text-elixir transition cursor-pointer bg-white/10 px-2 py-0.5 rounded-md"
                 >
                   Clear
                 </button>
               )}
             </label>
-            <div className="relative">
-              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                <span className="text-lg">🧪</span>
+            <div className="flex items-center gap-2.5">
+              <button
+                type="button"
+                onClick={() => adjustPotions(-1)}
+                className="tactile glass-input w-12 h-12 rounded-xl text-xl font-extrabold text-white hover:bg-white/15 flex items-center justify-center cursor-pointer"
+                aria-label="Decrease potions"
+              >
+                −
+              </button>
+              <div className="relative flex-1">
+                <input
+                  type="number"
+                  id="input-potions"
+                  inputMode="numeric"
+                  value={potionsInput}
+                  onChange={(e) => handlePotionsChange(e.target.value)}
+                  placeholder="0"
+                  min="0"
+                  max="999"
+                  className="glass-input w-full rounded-xl py-3 px-3 text-center text-xl font-extrabold placeholder-gray-500"
+                />
               </div>
-              <input
-                type="number"
-                id="input-potions"
-                inputMode="numeric"
-                value={potionsInput}
-                onChange={(e) => handlePotionsChange(e.target.value)}
-                placeholder="0"
-                min="0"
-                max="999"
-                className="glass-input w-full rounded-xl py-3 pl-10 pr-3 text-lg font-semibold placeholder-gray-500"
-              />
+              <button
+                type="button"
+                onClick={() => adjustPotions(1)}
+                className="tactile glass-input w-12 h-12 rounded-xl text-xl font-extrabold text-[#fbbf24] hover:bg-white/15 flex items-center justify-center cursor-pointer"
+                aria-label="Increase potions"
+              >
+                +
+              </button>
             </div>
           </div>
 
@@ -459,19 +737,20 @@ export default function App() {
             <button
               type="button"
               onClick={calculateTime}
-              className="btn-calculate flex-1 text-white font-bold text-lg rounded-xl py-4 tracking-wide shadow-lg cursor-pointer"
+              className="btn-calculate tactile flex-1 text-white font-bold text-lg rounded-xl py-4 tracking-wide shadow-lg cursor-pointer"
             >
               Calculate Finish Time
             </button>
-            {builders.slice(0, activeBuildersToRender).some((b) => b.d || b.h || b.m) && (
+            {(builders.slice(0, activeBuildersToRender).some((b) => b.d || b.h || b.m) ||
+              lockedResults.length > 0) && (
               <button
                 type="button"
                 onClick={resetAllTimes}
-                className="glass-input hover:border-pink-500/50 hover:bg-pink-500/10 text-gray-300 hover:text-white px-4 rounded-xl flex flex-col items-center justify-center gap-0.5 transition cursor-pointer"
+                className="tactile glass-input hover:border-pink-500/50 hover:bg-pink-500/10 text-gray-200 hover:text-white px-4 rounded-xl flex flex-col items-center justify-center gap-0.5 transition cursor-pointer"
                 title="Reset all days, hours, and minutes"
               >
                 <svg
-                  className="w-5 h-5 text-gray-300"
+                  className="w-5 h-5 text-gray-200"
                   fill="none"
                   stroke="currentColor"
                   viewBox="0 0 24 24"
@@ -483,7 +762,7 @@ export default function App() {
                     d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
                   />
                 </svg>
-                <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-300">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-gray-200">
                   Reset
                 </span>
               </button>
@@ -491,54 +770,114 @@ export default function App() {
           </div>
         </div>
 
-        {/* Results Section (Animated) */}
+        {/* Results Section (Animated + Locked Target Finish Timestamp) */}
         <div
           key={animKey}
           id="results-container"
           className={`${
-            showResult ? 'show-result' : 'hidden-result'
-          } mt-8 pt-6 border-t border-white/10 relative z-10`}
+            showResult && lockedResults.length > 0 ? 'show-result' : 'hidden-result'
+          } mt-8 pt-6 border-t border-white/15 relative z-10`}
         >
-          <div id="results-content" className="space-y-3">
-            {results.map((item, idx) => (
-              <div
-                key={idx}
-                className="bg-black/30 rounded-2xl p-4 border border-white/5 flex flex-col sm:flex-row justify-between sm:items-center gap-2"
-              >
-                <div>
-                  <p className="text-[10px] text-gray-400 uppercase tracking-wider mb-1">
-                    {item.builderLabel} Completes On
-                  </p>
-                  <div className="text-base font-bold text-gold">{item.formattedDate}</div>
-                </div>
-                <div className="text-left sm:text-right">
-                  <p className="text-[10px] text-gray-400 uppercase tracking-wider mb-1">
-                    Actual Wait
-                  </p>
-                  <div className="text-white flex items-baseline justify-start sm:justify-end gap-1">
-                    {item.realDays > 0 && (
-                      <>
-                        <span className="text-xl">{item.realDays}</span>
-                        <span className="text-xs text-gray-400 mr-1">d</span>
-                      </>
-                    )}
-                    {(item.realHours > 0 || item.realDays > 0) && (
-                      <>
-                        <span className="text-xl">{item.realHours}</span>
-                        <span className="text-xs text-gray-400 mr-1">h</span>
-                      </>
-                    )}
-                    <span className="text-xl">{item.realMins}</span>
-                    <span className="text-xs text-gray-400">m</span>
-                  </div>
-                </div>
-              </div>
-            ))}
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-1.5">
+              <span className="h-2 w-2 rounded-full bg-[#22c55e] animate-pulse" />
+              <span className="text-xs font-extrabold uppercase tracking-wider text-[#f8fafc]">
+                Locked Finish Schedule
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={unlockAndEditTimers}
+              className="tactile text-xs font-bold text-[#fbbf24] hover:text-amber-300 bg-amber-500/15 hover:bg-amber-500/25 border border-amber-400/30 px-2.5 py-1 rounded-lg cursor-pointer"
+            >
+              Reset / Edit Timers
+            </button>
           </div>
 
-          <div className="bg-black/30 rounded-2xl p-4 mt-4 border border-white/5 flex justify-between items-center">
-            <p className="text-xs text-gray-400 uppercase tracking-wider">Total Time Saved</p>
-            <div id="result-saved" className="text-lg font-bold text-elixir">
+          <div id="results-content" className="space-y-3">
+            {lockedResults.map((item, idx) => {
+              const countdown = formatCountdown(item.targetTimestamp - nowMs);
+
+              return (
+                <div
+                  key={`${item.builderIndex}-${idx}`}
+                  className={`rounded-2xl p-4 border flex flex-col gap-2.5 ${
+                    item.isGoblin
+                      ? 'goblin-card'
+                      : 'bg-black/40 border-white/10'
+                  }`}
+                >
+                  <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-2">
+                    <div>
+                      <div className="flex items-center gap-1.5 mb-1">
+                        {item.isGoblin && (
+                          <span className="text-[10px] font-extrabold uppercase tracking-wider px-1.5 py-0.5 rounded bg-emerald-500/20 text-[#22c55e] border border-emerald-400/40">
+                            [GOBLIN BUILDER]
+                          </span>
+                        )}
+                        <p
+                          className={`text-xs font-extrabold uppercase tracking-wider ${
+                            item.isGoblin ? 'text-[#22c55e]' : 'text-gray-200'
+                          }`}
+                        >
+                          {item.builderLabel} Completes On
+                        </p>
+                      </div>
+                      <div className="text-base font-extrabold text-gold">
+                        {item.formattedDate}
+                      </div>
+                    </div>
+
+                    <div className="text-left sm:text-right">
+                      <p className="text-[10px] font-bold text-gray-300 uppercase tracking-wider mb-1">
+                        Actual Wait
+                      </p>
+                      {countdown.isFinished ? (
+                        <div className="text-sm font-extrabold text-[#22c55e]">0m</div>
+                      ) : (
+                        <div className="text-white font-bold flex items-baseline justify-start sm:justify-end gap-1">
+                          {countdown.days > 0 && (
+                            <>
+                              <span className="text-xl">{countdown.days}</span>
+                              <span className="text-xs text-gray-300 mr-1">d</span>
+                            </>
+                          )}
+                          {(countdown.hours > 0 || countdown.days > 0) && (
+                            <>
+                              <span className="text-xl">{countdown.hours}</span>
+                              <span className="text-xs text-gray-300 mr-1">h</span>
+                            </>
+                          )}
+                          <span className="text-xl">{countdown.mins}</span>
+                          <span className="text-xs text-gray-300">m</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Live Countdown / Finished Status Badge */}
+                  <div className="pt-2 border-t border-white/10 flex items-center justify-between">
+                    {countdown.isFinished ? (
+                      <span className="inline-flex items-center gap-1.5 text-xs font-extrabold text-[#22c55e] bg-emerald-500/20 border border-emerald-400/40 px-2.5 py-1 rounded-lg">
+                        ✓ Finished! Builder Free
+                      </span>
+                    ) : (
+                      <span className="text-xs font-bold text-gray-200 flex items-center gap-1.5">
+                        <span className="text-[#fbbf24]">⏳</span>
+                        {countdown.statusText}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="bg-black/40 rounded-2xl p-4 mt-4 border border-white/10 flex justify-between items-center">
+            <p className="text-xs font-bold text-gray-200 uppercase tracking-wider">
+              Total Time Saved
+            </p>
+            <div id="result-saved" className="text-lg font-extrabold text-elixir">
               {savedText}
             </div>
           </div>

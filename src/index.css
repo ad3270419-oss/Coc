@@ -92,3 +92,40 @@ input[type="number"] {
   -moz-appearance: textfield;
 }
 
+/* Tactile micro-interactions */
+.tactile,
+.glass-input,
+.btn-calculate {
+  transition: transform 0.15s ease, border-color 0.25s ease, box-shadow 0.25s ease, background-color 0.2s ease;
+}
+
+.tactile:active,
+.glass-input:active,
+.btn-calculate:active {
+  transform: scale(0.96);
+}
+
+/* Regular Builder Card */
+.builder-card {
+  background: rgba(15, 23, 42, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+  transition: transform 0.15s ease, border-color 0.25s ease;
+}
+
+/* Dedicated Goblin Builder Card (Builder 7) */
+.goblin-card {
+  background: linear-gradient(145deg, rgba(6, 78, 59, 0.35) 0%, rgba(15, 23, 42, 0.6) 100%);
+  border: 1px solid rgba(34, 197, 94, 0.4);
+  box-shadow: 0 0 20px rgba(34, 197, 94, 0.15), inset 0 0 12px rgba(34, 197, 94, 0.08);
+  transition: transform 0.15s ease, border-color 0.25s ease, box-shadow 0.25s ease;
+}
+
+.goblin-input:focus {
+  outline: none;
+  border-color: #22c55e !important;
+  box-shadow: 0 0 12px rgba(34, 197, 94, 0.4) !important;
+  background: rgba(0, 0, 0, 0.45);
+}
+
+

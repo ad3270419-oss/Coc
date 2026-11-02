@@ -87,13 +87,13 @@ define(['./workbox-afac4cd2'], (function (workbox) { 'use strict';
     "revision": "5b8221f02d44e470a7b3b71a826b9d41"
   }, {
     "url": "index.html",
-    "revision": "3aef14db0866f7dd1ffd71a1261d2489"
+    "revision": "b0f9b95819b6a7851305210d6c23cf05"
   }, {
     "url": "icon.svg",
     "revision": "e22830735c292ef4cd9d36c32525f670"
   }, {
     "url": "coc-potion-calculator.html",
-    "revision": "a6e2ab1fda9cf07010518be6eac8ed07"
+    "revision": "ebc431741bc636469f315c6a04a25c3c"
   }, {
     "url": "apple-touch-icon.png",
     "revision": "ddb3f9acc06c7ebede2f54b9d6783928"
@@ -101,10 +101,10 @@ define(['./workbox-afac4cd2'], (function (workbox) { 'use strict';
     "url": "assets/workbox-window.prod.es5-Bd17z0YL.js",
     "revision": null
   }, {
-    "url": "assets/index-CLu10IL6.css",
+    "url": "assets/index-DL1qbC3r.css",
     "revision": null
   }, {
-    "url": "assets/index-BXvraDiH.js",
+    "url": "assets/index-DAufi9Wa.js",
     "revision": null
   }, {
     "url": "assets/aistudio/CoC_Builder_Potion_Calculator__1__9cb822eb.html",

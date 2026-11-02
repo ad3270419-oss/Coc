@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 
 interface BuilderTime {
   d: string;
@@ -37,10 +37,10 @@ const DEFAULT_BUILDERS: BuilderTime[] = Array.from({ length: 7 }, () => ({
   m: '',
 }));
 
-export function triggerHaptic(duration = 12) {
+export function triggerHaptic(pattern: number | number[] = 12) {
   try {
     if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
-      navigator.vibrate(duration);
+      navigator.vibrate(pattern);
     }
   } catch {
     // Ignore vibration errors on unsupported devices
@@ -100,49 +100,177 @@ function calcRealTime(totalBuilderHours: number, potions: number): number {
   }
 }
 
-function formatCountdown(remainingMs: number): {
-  isFinished: boolean;
-  days: number;
-  hours: number;
-  mins: number;
-  secs: number;
-  statusText: string;
-} {
-  if (remainingMs <= 0) {
-    return {
-      isFinished: true,
-      days: 0,
-      hours: 0,
-      mins: 0,
-      secs: 0,
-      statusText: 'Finished! Builder Free',
-    };
+function computeTimeParts(targetTimestamp: number) {
+  const remMs = targetTimestamp - Date.now();
+  if (remMs <= 0) {
+    return { isFinished: true, d: 0, h: 0, m: 0, s: 0 };
   }
-
-  const totalSeconds = Math.ceil(remainingMs / 1000);
-  const days = Math.floor(totalSeconds / 86400);
-  const hours = Math.floor((totalSeconds % 86400) / 3600);
-  const mins = Math.floor((totalSeconds % 3600) / 60);
-  const secs = totalSeconds % 60;
-
-  const parts: string[] = [];
-  if (days > 0) parts.push(`${days}d`);
-  if (hours > 0 || days > 0) parts.push(`${hours}h`);
-  if (mins > 0 || hours > 0 || days > 0) {
-    parts.push(`${mins}m`);
-  } else {
-    parts.push(`${secs}s`);
-  }
-
-  return {
-    isFinished: false,
-    days,
-    hours,
-    mins,
-    secs,
-    statusText: `Time left: ${parts.join(' ')} remaining`,
-  };
+  const totalSeconds = Math.ceil(remMs / 1000);
+  const d = Math.floor(totalSeconds / 86400);
+  const h = Math.floor((totalSeconds % 86400) / 3600);
+  const m = Math.floor((totalSeconds % 3600) / 60);
+  const s = totalSeconds % 60;
+  return { isFinished: false, d, h, m, s };
 }
+
+function retriggerClass(el: HTMLElement | null, className: string) {
+  if (!el) return;
+  el.classList.remove(className);
+  void el.offsetWidth;
+  el.classList.add(className);
+}
+
+/**
+ * Isolated 4-Unit HUD Live Countdown Ticker:
+ * [ DD d ] : [ HH h ] : [ MM m ] : [ SS s ]
+ * Updates digit spans directly via DOM refs so 1-second ticks never re-render parent UI.
+ */
+const LiveHudTicker: React.FC<{ targetTimestamp: number }> = React.memo(({ targetTimestamp }) => {
+  const initialParts = computeTimeParts(targetTimestamp);
+  const [isFinished, setIsFinished] = useState<boolean>(initialParts.isFinished);
+
+  const prevPartsRef = useRef(initialParts);
+  const wasRunningRef = useRef<boolean>(!initialParts.isFinished);
+
+  const dayBoxRef = useRef<HTMLDivElement>(null);
+  const hourBoxRef = useRef<HTMLDivElement>(null);
+  const minBoxRef = useRef<HTMLDivElement>(null);
+
+  const dayValRef = useRef<HTMLSpanElement>(null);
+  const hourValRef = useRef<HTMLSpanElement>(null);
+  const minValRef = useRef<HTMLSpanElement>(null);
+  const secValRef = useRef<HTMLSpanElement>(null);
+
+  useEffect(() => {
+    const startParts = computeTimeParts(targetTimestamp);
+    prevPartsRef.current = startParts;
+    wasRunningRef.current = !startParts.isFinished;
+    setIsFinished(startParts.isFinished);
+
+    if (startParts.isFinished) return;
+
+    const timerId = window.setInterval(() => {
+      const next = computeTimeParts(targetTimestamp);
+      if (next.isFinished) {
+        window.clearInterval(timerId);
+        if (wasRunningRef.current) {
+          wasRunningRef.current = false;
+          triggerHaptic([30, 50, 30]);
+        }
+        setIsFinished(true);
+        return;
+      }
+
+      const prev = prevPartsRef.current;
+
+      // Seconds: Smooth vertical slide-down flip animation
+      if (next.s !== prev.s && secValRef.current) {
+        secValRef.current.textContent = String(next.s).padStart(2, '0');
+        retriggerClass(secValRef.current, 'anim-sec-flip');
+      }
+
+      // Minutes: Neon pink/elixir pulse glow + gentle bounce
+      if (next.m !== prev.m && minValRef.current) {
+        minValRef.current.textContent = String(next.m).padStart(2, '0');
+        retriggerClass(minBoxRef.current, 'anim-min-pulse');
+      }
+
+      // Hours: Prominent gold glow flash + scale pop
+      if (next.h !== prev.h && hourValRef.current) {
+        hourValRef.current.textContent = String(next.h).padStart(2, '0');
+        retriggerClass(hourBoxRef.current, 'anim-milestone-gold');
+      }
+
+      // Days: Prominent gold glow flash + scale pop
+      if (next.d !== prev.d && dayValRef.current) {
+        dayValRef.current.textContent = String(next.d).padStart(2, '0');
+        retriggerClass(dayBoxRef.current, 'anim-milestone-gold');
+      }
+
+      prevPartsRef.current = next;
+    }, 1000);
+
+    return () => window.clearInterval(timerId);
+  }, [targetTimestamp]);
+
+  if (isFinished) {
+    return (
+      <div className="badge-finished-glow w-full rounded-xl px-3 py-2.5 flex items-center justify-center gap-2 text-center">
+        <span className="text-xs sm:text-sm font-extrabold tracking-wide text-[#22c55e] uppercase">
+          ⚡ UPGRADE FINISHED! BUILDER FREE
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="w-full">
+      <p className="text-[10px] font-bold text-gray-300 uppercase tracking-wider mb-1.5">
+        Live Countdown
+      </p>
+      <div className="flex items-center justify-between sm:justify-start gap-1 sm:gap-1.5">
+        {/* Days Unit */}
+        <div
+          ref={dayBoxRef}
+          className="hud-unit flex-1 sm:flex-initial sm:min-w-[58px] rounded-xl px-2 py-1.5 flex items-baseline justify-center gap-0.5"
+        >
+          <span
+            ref={dayValRef}
+            className="text-base sm:text-lg font-extrabold text-[#f8fafc] tracking-tight"
+          >
+            {String(initialParts.d).padStart(2, '0')}
+          </span>
+          <span className="text-[10px] font-bold text-[#fbbf24]">d</span>
+        </div>
+
+        <span className="text-gray-400 font-extrabold text-xs select-none">:</span>
+
+        {/* Hours Unit */}
+        <div
+          ref={hourBoxRef}
+          className="hud-unit flex-1 sm:flex-initial sm:min-w-[58px] rounded-xl px-2 py-1.5 flex items-baseline justify-center gap-0.5"
+        >
+          <span
+            ref={hourValRef}
+            className="text-base sm:text-lg font-extrabold text-[#f8fafc] tracking-tight"
+          >
+            {String(initialParts.h).padStart(2, '0')}
+          </span>
+          <span className="text-[10px] font-bold text-[#fbbf24]">h</span>
+        </div>
+
+        <span className="text-gray-400 font-extrabold text-xs select-none">:</span>
+
+        {/* Minutes Unit */}
+        <div
+          ref={minBoxRef}
+          className="hud-unit flex-1 sm:flex-initial sm:min-w-[58px] rounded-xl px-2 py-1.5 flex items-baseline justify-center gap-0.5"
+        >
+          <span
+            ref={minValRef}
+            className="text-base sm:text-lg font-extrabold text-[#f8fafc] tracking-tight"
+          >
+            {String(initialParts.m).padStart(2, '0')}
+          </span>
+          <span className="text-[10px] font-bold text-elixir">m</span>
+        </div>
+
+        <span className="text-gray-400 font-extrabold text-xs select-none">:</span>
+
+        {/* Seconds Unit */}
+        <div className="hud-unit flex-1 sm:flex-initial sm:min-w-[58px] rounded-xl px-2 py-1.5 flex items-baseline justify-center gap-0.5 overflow-hidden">
+          <span
+            ref={secValRef}
+            className="inline-block text-base sm:text-lg font-extrabold text-[#fbbf24] tracking-tight"
+          >
+            {String(initialParts.s).padStart(2, '0')}
+          </span>
+          <span className="text-[10px] font-bold text-gray-300">s</span>
+        </div>
+      </div>
+    </div>
+  );
+});
 
 export default function App() {
   const initial = loadSavedState();
@@ -159,17 +287,6 @@ export default function App() {
     () => (initial.lockedResults?.length ?? 0) > 0
   );
   const [animKey, setAnimKey] = useState<number>(0);
-  const [nowMs, setNowMs] = useState<number>(() => Date.now());
-
-  // Live 1-second ticker for locked targetTimestamp countdowns
-  useEffect(() => {
-    if (!showResult || lockedResults.length === 0) return;
-    setNowMs(Date.now());
-    const interval = window.setInterval(() => {
-      setNowMs(Date.now());
-    }, 1000);
-    return () => window.clearInterval(interval);
-  }, [showResult, lockedResults]);
 
   // Save state + locked finish timestamps automatically to localStorage
   useEffect(() => {
@@ -387,7 +504,6 @@ export default function App() {
 
     // Lock target timestamps and trigger slideUpFade animation
     setShowResult(false);
-    setNowMs(calcTimestamp);
     setLockedResults(computedResults);
     setSavedText(computedSavedText);
     setAnimKey((prev) => prev + 1);
@@ -770,7 +886,7 @@ export default function App() {
           </div>
         </div>
 
-        {/* Results Section (Animated + Locked Target Finish Timestamp) */}
+        {/* Results Section (Animated + Locked Target Finish Timestamp + 4-Unit HUD Live Ticker) */}
         <div
           key={animKey}
           id="results-container"
@@ -795,82 +911,41 @@ export default function App() {
           </div>
 
           <div id="results-content" className="space-y-3">
-            {lockedResults.map((item, idx) => {
-              const countdown = formatCountdown(item.targetTimestamp - nowMs);
-
-              return (
-                <div
-                  key={`${item.builderIndex}-${idx}`}
-                  className={`rounded-2xl p-4 border flex flex-col gap-2.5 ${
-                    item.isGoblin
-                      ? 'goblin-card'
-                      : 'bg-black/40 border-white/10'
-                  }`}
-                >
-                  <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-2">
-                    <div>
-                      <div className="flex items-center gap-1.5 mb-1">
-                        {item.isGoblin && (
-                          <span className="text-[10px] font-extrabold uppercase tracking-wider px-1.5 py-0.5 rounded bg-emerald-500/20 text-[#22c55e] border border-emerald-400/40">
-                            [GOBLIN BUILDER]
-                          </span>
-                        )}
-                        <p
-                          className={`text-xs font-extrabold uppercase tracking-wider ${
-                            item.isGoblin ? 'text-[#22c55e]' : 'text-gray-200'
-                          }`}
-                        >
-                          {item.builderLabel} Completes On
-                        </p>
-                      </div>
-                      <div className="text-base font-extrabold text-gold">
-                        {item.formattedDate}
-                      </div>
-                    </div>
-
-                    <div className="text-left sm:text-right">
-                      <p className="text-[10px] font-bold text-gray-300 uppercase tracking-wider mb-1">
-                        Actual Wait
-                      </p>
-                      {countdown.isFinished ? (
-                        <div className="text-sm font-extrabold text-[#22c55e]">0m</div>
-                      ) : (
-                        <div className="text-white font-bold flex items-baseline justify-start sm:justify-end gap-1">
-                          {countdown.days > 0 && (
-                            <>
-                              <span className="text-xl">{countdown.days}</span>
-                              <span className="text-xs text-gray-300 mr-1">d</span>
-                            </>
-                          )}
-                          {(countdown.hours > 0 || countdown.days > 0) && (
-                            <>
-                              <span className="text-xl">{countdown.hours}</span>
-                              <span className="text-xs text-gray-300 mr-1">h</span>
-                            </>
-                          )}
-                          <span className="text-xl">{countdown.mins}</span>
-                          <span className="text-xs text-gray-300">m</span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Live Countdown / Finished Status Badge */}
-                  <div className="pt-2 border-t border-white/10 flex items-center justify-between">
-                    {countdown.isFinished ? (
-                      <span className="inline-flex items-center gap-1.5 text-xs font-extrabold text-[#22c55e] bg-emerald-500/20 border border-emerald-400/40 px-2.5 py-1 rounded-lg">
-                        ✓ Finished! Builder Free
-                      </span>
-                    ) : (
-                      <span className="text-xs font-bold text-gray-200 flex items-center gap-1.5">
-                        <span className="text-[#fbbf24]">⏳</span>
-                        {countdown.statusText}
+            {lockedResults.map((item, idx) => (
+              <div
+                key={`${item.builderIndex}-${item.targetTimestamp}-${idx}`}
+                className={`rounded-2xl p-4 border flex flex-col gap-3 ${
+                  item.isGoblin
+                    ? 'goblin-card'
+                    : 'bg-black/40 border-white/10'
+                }`}
+              >
+                <div>
+                  <div className="flex items-center gap-1.5 mb-1">
+                    {item.isGoblin && (
+                      <span className="text-[10px] font-extrabold uppercase tracking-wider px-1.5 py-0.5 rounded bg-emerald-500/20 text-[#22c55e] border border-emerald-400/40">
+                        [GOBLIN BUILDER]
                       </span>
                     )}
+                    <p
+                      className={`text-xs font-extrabold uppercase tracking-wider ${
+                        item.isGoblin ? 'text-[#22c55e]' : 'text-gray-200'
+                      }`}
+                    >
+                      {item.builderLabel} Completes On
+                    </p>
+                  </div>
+                  <div className="text-base font-extrabold text-gold">
+                    {item.formattedDate}
                   </div>
                 </div>
-              );
-            })}
+
+                {/* 4-Unit HUD Live Ticker inside the card */}
+                <div className="pt-2.5 border-t border-white/10">
+                  <LiveHudTicker targetTimestamp={item.targetTimestamp} />
+                </div>
+              </div>
+            ))}
           </div>
 
           <div className="bg-black/40 rounded-2xl p-4 mt-4 border border-white/10 flex justify-between items-center">

@@ -39,13 +39,22 @@ jobs:
           fi
           npx cap sync android
 
+      - name: Accept Android SDK licenses
+        run: |
+          mkdir -p "$ANDROID_HOME/licenses" || true
+          echo -e "\n24333f8a63b6125ea1045bf4e074d1f94e9204d3\nd56f5187479451eabf01fb78af6dfcb131a6481e" > "$ANDROID_HOME/licenses/android-sdk-license" || true
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
       - name: Grant execute permission for gradlew
         run: chmod +x android/gradlew
 
       - name: Build Debug APK with Gradle
         run: |
           cd android
-          ./gradlew assembleDebug --no-daemon
+          ./gradlew assembleDebug --no-daemon --stacktrace
 
       - name: Upload APK to Artifacts
         uses: actions/upload-artifact@v4

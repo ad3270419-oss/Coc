@@ -237,21 +237,32 @@
                     </div>
                     <div class="grid grid-cols-3 gap-3">
                         <div class="flex flex-col">
-                            <input type="number" id="input-d-${i}" value="${existingValues[i-1].d}" placeholder="0" min="0" class="glass-input w-full rounded-xl py-3 px-2 text-center text-xl font-semibold placeholder-gray-500">
+                            <input type="number" id="input-d-${i}" value="${existingValues[i-1].d}" oninput="clampInput(this, 999)" placeholder="0" min="0" max="999" class="glass-input w-full rounded-xl py-3 px-2 text-center text-xl font-semibold placeholder-gray-500">
                             <span class="text-xs text-gray-400 text-center mt-1">Days</span>
                         </div>
                         <div class="flex flex-col">
-                            <input type="number" id="input-h-${i}" value="${existingValues[i-1].h}" placeholder="0" min="0" class="glass-input w-full rounded-xl py-3 px-2 text-center text-xl font-semibold placeholder-gray-500">
+                            <input type="number" id="input-h-${i}" value="${existingValues[i-1].h}" oninput="clampInput(this, 24)" placeholder="0" min="0" max="24" class="glass-input w-full rounded-xl py-3 px-2 text-center text-xl font-semibold placeholder-gray-500">
                             <span class="text-xs text-gray-400 text-center mt-1">Hours</span>
                         </div>
                         <div class="flex flex-col">
-                            <input type="number" id="input-m-${i}" value="${existingValues[i-1].m}" placeholder="0" min="0" class="glass-input w-full rounded-xl py-3 px-2 text-center text-xl font-semibold placeholder-gray-500">
+                            <input type="number" id="input-m-${i}" value="${existingValues[i-1].m}" oninput="clampInput(this, 60)" placeholder="0" min="0" max="60" class="glass-input w-full rounded-xl py-3 px-2 text-center text-xl font-semibold placeholder-gray-500">
                             <span class="text-xs text-gray-400 text-center mt-1">Mins</span>
                         </div>
                     </div>
                 `;
                 container.appendChild(div);
             }
+        }
+
+        function clampInput(el, maxVal) {
+            const digits = el.value.replace(/\D/g, '');
+            if (digits === '') {
+                el.value = '';
+                return;
+            }
+            let num = parseInt(digits, 10);
+            if (num > maxVal) num = maxVal;
+            el.value = String(num);
         }
 
         function resetBuilder(i) {

@@ -1,0 +1,94 @@
+@import "tailwindcss";
+
+body {
+  font-family: 'Poppins', sans-serif;
+  /* Dark blue/purple gradient matching Clash of Clans night village / magic theme */
+  background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%);
+  background-attachment: fixed;
+  color: #ffffff;
+  min-height: 100vh;
+  min-height: 100dvh;
+  margin: 0;
+  overscroll-behavior-y: contain;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Glassmorphism styling */
+.glass-card {
+  background: rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+}
+
+.glass-input {
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: white;
+  transition: all 0.3s ease;
+}
+
+.glass-input:focus {
+  outline: none;
+  border-color: #FACC15; /* Gold focus */
+  box-shadow: 0 0 10px rgba(250, 204, 21, 0.3);
+  background: rgba(0, 0, 0, 0.4);
+}
+
+/* CoC Accent Colors */
+.text-gold {
+  color: #FACC15;
+}
+.text-elixir {
+  color: #EC4899;
+}
+.bg-gold {
+  background-color: #FACC15;
+}
+.bg-elixir {
+  background-color: #EC4899;
+}
+
+/* Custom Button */
+.btn-calculate {
+  background: linear-gradient(to right, #EC4899, #8B5CF6);
+  box-shadow: 0 4px 15px rgba(236, 72, 153, 0.4);
+  transition: transform 0.1s, box-shadow 0.3s;
+}
+.btn-calculate:active {
+  transform: scale(0.97);
+}
+
+/* Animations */
+.hidden-result {
+  opacity: 0;
+  display: none;
+}
+
+.show-result {
+  display: block;
+  animation: slideUpFade 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes slideUpFade {
+  0% {
+    opacity: 0;
+    transform: translateY(30px) scale(0.95);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Hide number input arrows */
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] {
+  -moz-appearance: textfield;
+}
+

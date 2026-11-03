@@ -1,5 +1,12 @@
 {
   "appId": "com.cocpotion.calculator",
-  "appName": "CoC Potion",
-  "webDir": "dist"
+  "appName": "Clash Planner",
+  "webDir": "dist",
+  "plugins": {
+    "LocalNotifications": {
+      "smallIcon": "ic_launcher",
+      "iconColor": "#fbbf24",
+      "sound": "default"
+    }
+  }
 }

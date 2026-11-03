@@ -204,6 +204,10 @@ input[type="number"] {
   border-left: 3px solid #d946ef !important;
 }
 
+.accent-pet {
+  border-left: 3px solid #10b981 !important;
+}
+
 .accent-goblin {
   border-left: 3px solid #22c55e !important;
   box-shadow: -2px 0 8px rgba(34, 197, 94, 0.3), 0 0 20px rgba(34, 197, 94, 0.15), inset 0 0 12px rgba(34, 197, 94, 0.08) !important;
@@ -213,6 +217,111 @@ input[type="number"] {
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   padding-bottom: 8px;
   margin-bottom: 12px;
+}
+
+/* Clash Planner Branding & Navigation Styles */
+.text-planner-gradient {
+  background: linear-gradient(90deg, #ec4899 0%, #fbbf24 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.tagline-companion {
+  color: #fbbf24;
+  letter-spacing: 0.25rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.account-bar-scroll {
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.account-bar-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.account-chip-active {
+  border: 1px solid #fbbf24;
+  background: rgba(251, 191, 36, 0.1);
+  color: #fbbf24;
+  box-shadow: 0 0 12px rgba(251, 191, 36, 0.2);
+}
+
+.account-chip-inactive {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(15, 23, 42, 0.45);
+  color: #94a3b8;
+}
+
+.account-chip-add {
+  border: 1px dashed rgba(255, 255, 255, 0.28);
+  background: rgba(255, 255, 255, 0.03);
+  color: #cbd5e1;
+}
+
+.seg-tab-builders-active {
+  border: 1px solid #fbbf24;
+  background: rgba(251, 191, 36, 0.14);
+  color: #fbbf24;
+  box-shadow: 0 0 14px rgba(251, 191, 36, 0.22);
+}
+
+.seg-tab-lab-active {
+  border: 1px solid #d946ef;
+  background: rgba(217, 70, 239, 0.15);
+  color: #f0abfc;
+  box-shadow: 0 0 14px rgba(217, 70, 239, 0.25);
+}
+
+.seg-tab-pet-active {
+  border: 1px solid #10b981;
+  background: rgba(16, 185, 129, 0.15);
+  color: #34d399;
+  box-shadow: 0 0 14px rgba(16, 185, 129, 0.25);
+}
+
+.tab-panel-fade {
+  animation: tabFadeSlide 0.28s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.builder-speed-pill {
+  background: rgba(251, 191, 36, 0.1);
+  color: #fbbf24;
+  border: 1px solid rgba(251, 191, 36, 0.3);
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+}
+
+.lab-input:focus {
+  outline: none;
+  border-color: #d946ef !important;
+  box-shadow: 0 0 12px rgba(217, 70, 239, 0.4) !important;
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.pet-input:focus {
+  outline: none;
+  border-color: #10b981 !important;
+  box-shadow: 0 0 12px rgba(16, 185, 129, 0.4) !important;
+  background: rgba(0, 0, 0, 0.45);
+}
+
+@keyframes tabFadeSlide {
+  0% {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 /* 4-Unit HUD Live Countdown Ticker & Tiered Animations */

@@ -11619,6 +11619,532 @@ function registerSW(options = {}) {
 	registerPromise = register();
 	return updateServiceWorker;
 }
+// node_modules/@capacitor/core/dist/index.js
+var import_react = /* @__PURE__ */ __toESM(require_react(), 1);
+/*! Capacitor: https://capacitorjs.com/ - MIT License */
+var ExceptionCode;
+(function(ExceptionCode) {
+	/**
+	* API is not implemented.
+	*
+	* This usually means the API can't be used because it is not implemented for
+	* the current platform.
+	*/
+	ExceptionCode["Unimplemented"] = "UNIMPLEMENTED";
+	/**
+	* API is not available.
+	*
+	* This means the API can't be used right now because:
+	*   - it is currently missing a prerequisite, such as network connectivity
+	*   - it requires a particular platform or browser version
+	*/
+	ExceptionCode["Unavailable"] = "UNAVAILABLE";
+})(ExceptionCode || (ExceptionCode = {}));
+var CapacitorException = class extends Error {
+	constructor(message, code, data) {
+		super(message);
+		this.message = message;
+		this.code = code;
+		this.data = data;
+	}
+};
+var getPlatformId = (win) => {
+	var _a, _b;
+	if (win === null || win === void 0 ? void 0 : win.androidBridge) return "android";
+	else if ((_b = (_a = win === null || win === void 0 ? void 0 : win.webkit) === null || _a === void 0 ? void 0 : _a.messageHandlers) === null || _b === void 0 ? void 0 : _b.bridge) return "ios";
+	else return "web";
+};
+var createCapacitor = (win) => {
+	const capCustomPlatform = win.CapacitorCustomPlatform || null;
+	const cap = win.Capacitor || {};
+	const Plugins = cap.Plugins = cap.Plugins || {};
+	const getPlatform = () => {
+		return capCustomPlatform !== null ? capCustomPlatform.name : getPlatformId(win);
+	};
+	const isNativePlatform = () => getPlatform() !== "web";
+	const isPluginAvailable = (pluginName) => {
+		const plugin = registeredPlugins.get(pluginName);
+		if (plugin === null || plugin === void 0 ? void 0 : plugin.platforms.has(getPlatform())) return true;
+		if (getPluginHeader(pluginName)) return true;
+		return false;
+	};
+	const getPluginHeader = (pluginName) => {
+		var _a;
+		return (_a = cap.PluginHeaders) === null || _a === void 0 ? void 0 : _a.find((h) => h.name === pluginName);
+	};
+	const handleError = (err) => win.console.error(err);
+	const registeredPlugins = /* @__PURE__ */ new Map();
+	const registerPlugin = (pluginName, jsImplementations = {}) => {
+		const registeredPlugin = registeredPlugins.get(pluginName);
+		if (registeredPlugin) {
+			console.warn(`Capacitor plugin "${pluginName}" already registered. Cannot register plugins twice.`);
+			return registeredPlugin.proxy;
+		}
+		const platform = getPlatform();
+		const pluginHeader = getPluginHeader(pluginName);
+		let jsImplementation;
+		const loadPluginImplementation = async () => {
+			if (!jsImplementation && platform in jsImplementations) jsImplementation = typeof jsImplementations[platform] === "function" ? jsImplementation = await jsImplementations[platform]() : jsImplementation = jsImplementations[platform];
+			else if (capCustomPlatform !== null && !jsImplementation && "web" in jsImplementations) jsImplementation = typeof jsImplementations["web"] === "function" ? jsImplementation = await jsImplementations["web"]() : jsImplementation = jsImplementations["web"];
+			return jsImplementation;
+		};
+		const createPluginMethod = (impl, prop) => {
+			var _a, _b;
+			if (pluginHeader) {
+				const methodHeader = pluginHeader === null || pluginHeader === void 0 ? void 0 : pluginHeader.methods.find((m) => prop === m.name);
+				if (methodHeader) {
+					if (methodHeader.rtype === "promise") return (options) => cap.nativePromise(pluginName, prop.toString(), options);
+					else return (options, callback) => cap.nativeCallback(pluginName, prop.toString(), options, callback);
+				} else if (impl) return (_a = impl[prop]) === null || _a === void 0 ? void 0 : _a.bind(impl);
+			} else if (impl) return (_b = impl[prop]) === null || _b === void 0 ? void 0 : _b.bind(impl);
+			else throw new CapacitorException(`"${pluginName}" plugin is not implemented on ${platform}`, ExceptionCode.Unimplemented);
+		};
+		const createPluginMethodWrapper = (prop) => {
+			let remove;
+			const wrapper = (...args) => {
+				const p = loadPluginImplementation().then((impl) => {
+					const fn = createPluginMethod(impl, prop);
+					if (fn) {
+						const p = fn(...args);
+						remove = p === null || p === void 0 ? void 0 : p.remove;
+						return p;
+					} else throw new CapacitorException(`"${pluginName}.${prop}()" is not implemented on ${platform}`, ExceptionCode.Unimplemented);
+				});
+				if (prop === "addListener") p.remove = async () => remove();
+				return p;
+			};
+			wrapper.toString = () => `${prop.toString()}() { [capacitor code] }`;
+			Object.defineProperty(wrapper, "name", {
+				value: prop,
+				writable: false,
+				configurable: false
+			});
+			return wrapper;
+		};
+		const addListener = createPluginMethodWrapper("addListener");
+		const removeListener = createPluginMethodWrapper("removeListener");
+		const addListenerNative = (eventName, callback) => {
+			const call = addListener({ eventName }, callback);
+			const remove = async () => {
+				const callbackId = await call;
+				removeListener({
+					eventName,
+					callbackId
+				}, callback);
+			};
+			const p = new Promise((resolve) => call.then(() => resolve({ remove })));
+			p.remove = async () => {
+				console.warn(`Using addListener() without 'await' is deprecated.`);
+				await remove();
+			};
+			return p;
+		};
+		const proxy = new Proxy({}, { get(_, prop) {
+			switch (prop) {
+				case "$$typeof": return;
+				case "toJSON": return () => ({});
+				case "addListener": return pluginHeader ? addListenerNative : addListener;
+				case "removeListener": return removeListener;
+				default: return createPluginMethodWrapper(prop);
+			}
+		} });
+		Plugins[pluginName] = proxy;
+		registeredPlugins.set(pluginName, {
+			name: pluginName,
+			proxy,
+			platforms: /* @__PURE__ */ new Set([...Object.keys(jsImplementations), ...pluginHeader ? [platform] : []])
+		});
+		return proxy;
+	};
+	if (!cap.convertFileSrc) cap.convertFileSrc = (filePath) => filePath;
+	cap.getPlatform = getPlatform;
+	cap.handleError = handleError;
+	cap.isNativePlatform = isNativePlatform;
+	cap.isPluginAvailable = isPluginAvailable;
+	cap.registerPlugin = registerPlugin;
+	cap.Exception = CapacitorException;
+	cap.DEBUG = !!cap.DEBUG;
+	cap.isLoggingEnabled = !!cap.isLoggingEnabled;
+	return cap;
+};
+var initCapacitorGlobal = (win) => win.Capacitor = createCapacitor(win);
+var Capacitor = /*#__PURE__*/ initCapacitorGlobal(typeof globalThis !== "undefined" ? globalThis : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : typeof global !== "undefined" ? global : {});
+var registerPlugin = Capacitor.registerPlugin;
+/**
+* Base class web plugins should extend.
+*/
+var WebPlugin = class {
+	constructor() {
+		this.listeners = {};
+		this.retainedEventArguments = {};
+		this.windowListeners = {};
+	}
+	addListener(eventName, listenerFunc) {
+		let firstListener = false;
+		if (!this.listeners[eventName]) {
+			this.listeners[eventName] = [];
+			firstListener = true;
+		}
+		this.listeners[eventName].push(listenerFunc);
+		const windowListener = this.windowListeners[eventName];
+		if (windowListener && !windowListener.registered) this.addWindowListener(windowListener);
+		if (firstListener) this.sendRetainedArgumentsForEvent(eventName);
+		const remove = async () => this.removeListener(eventName, listenerFunc);
+		return Promise.resolve({ remove });
+	}
+	async removeAllListeners() {
+		this.listeners = {};
+		for (const listener in this.windowListeners) this.removeWindowListener(this.windowListeners[listener]);
+		this.windowListeners = {};
+	}
+	notifyListeners(eventName, data, retainUntilConsumed) {
+		const listeners = this.listeners[eventName];
+		if (!listeners) {
+			if (retainUntilConsumed) {
+				let args = this.retainedEventArguments[eventName];
+				if (!args) args = [];
+				args.push(data);
+				this.retainedEventArguments[eventName] = args;
+			}
+			return;
+		}
+		listeners.forEach((listener) => listener(data));
+	}
+	hasListeners(eventName) {
+		var _a;
+		return !!((_a = this.listeners[eventName]) === null || _a === void 0 ? void 0 : _a.length);
+	}
+	registerWindowListener(windowEventName, pluginEventName) {
+		this.windowListeners[pluginEventName] = {
+			registered: false,
+			windowEventName,
+			pluginEventName,
+			handler: (event) => {
+				this.notifyListeners(pluginEventName, event);
+			}
+		};
+	}
+	unimplemented(msg = "not implemented") {
+		return new Capacitor.Exception(msg, ExceptionCode.Unimplemented);
+	}
+	unavailable(msg = "not available") {
+		return new Capacitor.Exception(msg, ExceptionCode.Unavailable);
+	}
+	async removeListener(eventName, listenerFunc) {
+		const listeners = this.listeners[eventName];
+		if (!listeners) return;
+		const index = listeners.indexOf(listenerFunc);
+		if (index !== -1) this.listeners[eventName].splice(index, 1);
+		if (!this.listeners[eventName].length) this.removeWindowListener(this.windowListeners[eventName]);
+	}
+	addWindowListener(handle) {
+		window.addEventListener(handle.windowEventName, handle.handler);
+		handle.registered = true;
+	}
+	removeWindowListener(handle) {
+		if (!handle) return;
+		window.removeEventListener(handle.windowEventName, handle.handler);
+		handle.registered = false;
+	}
+	sendRetainedArgumentsForEvent(eventName) {
+		const args = this.retainedEventArguments[eventName];
+		if (!args) return;
+		delete this.retainedEventArguments[eventName];
+		args.forEach((arg) => {
+			this.notifyListeners(eventName, arg);
+		});
+	}
+};
+/******** END WEB VIEW PLUGIN ********/
+/******** COOKIES PLUGIN ********/
+/**
+* Safely web encode a string value (inspired by js-cookie)
+* @param str The string value to encode
+*/
+var encode = (str) => encodeURIComponent(str).replace(/%(2[346B]|5E|60|7C)/g, decodeURIComponent).replace(/[()]/g, escape);
+/**
+* Safely web decode a string value (inspired by js-cookie)
+* @param str The string value to decode
+*/
+var decode = (str) => str.replace(/(%[\dA-F]{2})+/gi, decodeURIComponent);
+var CapacitorCookiesPluginWeb = class extends WebPlugin {
+	async getCookies() {
+		const cookies = document.cookie;
+		const cookieMap = {};
+		cookies.split(";").forEach((cookie) => {
+			if (cookie.length <= 0) return;
+			let [key, value] = cookie.replace(/=/, "CAP_COOKIE").split("CAP_COOKIE");
+			key = decode(key).trim();
+			value = decode(value).trim();
+			cookieMap[key] = value;
+		});
+		return cookieMap;
+	}
+	async setCookie(options) {
+		try {
+			const encodedKey = encode(options.key);
+			const encodedValue = encode(options.value);
+			const expires = options.expires ? `; expires=${options.expires.replace("expires=", "")}` : "";
+			const path = (options.path || "/").replace("path=", "");
+			const domain = options.url != null && options.url.length > 0 ? `domain=${options.url}` : "";
+			document.cookie = `${encodedKey}=${encodedValue || ""}${expires}; path=${path}; ${domain};`;
+		} catch (error) {
+			return Promise.reject(error);
+		}
+	}
+	async deleteCookie(options) {
+		try {
+			document.cookie = `${options.key}=; Max-Age=0`;
+		} catch (error) {
+			return Promise.reject(error);
+		}
+	}
+	async clearCookies() {
+		try {
+			const cookies = document.cookie.split(";") || [];
+			for (const cookie of cookies) document.cookie = cookie.replace(/^ +/, "").replace(/=.*/, `=;expires=${(/* @__PURE__ */ new Date()).toUTCString()};path=/`);
+		} catch (error) {
+			return Promise.reject(error);
+		}
+	}
+	async clearAllCookies() {
+		try {
+			await this.clearCookies();
+		} catch (error) {
+			return Promise.reject(error);
+		}
+	}
+};
+registerPlugin("CapacitorCookies", { web: () => new CapacitorCookiesPluginWeb() });
+/**
+* Read in a Blob value and return it as a base64 string
+* @param blob The blob value to convert to a base64 string
+*/
+var readBlobAsBase64 = async (blob) => new Promise((resolve, reject) => {
+	const reader = new FileReader();
+	reader.onload = () => {
+		const base64String = reader.result;
+		resolve(base64String.indexOf(",") >= 0 ? base64String.split(",")[1] : base64String);
+	};
+	reader.onerror = (error) => reject(error);
+	reader.readAsDataURL(blob);
+});
+/**
+* Normalize an HttpHeaders map by lowercasing all of the values
+* @param headers The HttpHeaders object to normalize
+*/
+var normalizeHttpHeaders = (headers = {}) => {
+	const originalKeys = Object.keys(headers);
+	return Object.keys(headers).map((k) => k.toLocaleLowerCase()).reduce((acc, key, index) => {
+		acc[key] = headers[originalKeys[index]];
+		return acc;
+	}, {});
+};
+/**
+* Builds a string of url parameters that
+* @param params A map of url parameters
+* @param shouldEncode true if you should encodeURIComponent() the values (true by default)
+*/
+var buildUrlParams = (params, shouldEncode = true) => {
+	if (!params) return null;
+	return Object.entries(params).reduce((accumulator, entry) => {
+		const [key, value] = entry;
+		let encodedValue;
+		let item;
+		if (Array.isArray(value)) {
+			item = "";
+			value.forEach((str) => {
+				encodedValue = shouldEncode ? encodeURIComponent(str) : str;
+				item += `${key}=${encodedValue}&`;
+			});
+			item.slice(0, -1);
+		} else {
+			encodedValue = shouldEncode ? encodeURIComponent(value) : value;
+			item = `${key}=${encodedValue}`;
+		}
+		return `${accumulator}&${item}`;
+	}, "").substr(1);
+};
+/**
+* Build the RequestInit object based on the options passed into the initial request
+* @param options The Http plugin options
+* @param extra Any extra RequestInit values
+*/
+var buildRequestInit = (options, extra = {}) => {
+	const output = Object.assign({
+		method: options.method || "GET",
+		headers: options.headers
+	}, extra);
+	const type = normalizeHttpHeaders(options.headers)["content-type"] || "";
+	if (typeof options.data === "string") output.body = options.data;
+	else if (type.includes("application/x-www-form-urlencoded")) {
+		const params = new URLSearchParams();
+		for (const [key, value] of Object.entries(options.data || {})) params.set(key, value);
+		output.body = params.toString();
+	} else if (type.includes("multipart/form-data") || options.data instanceof FormData) {
+		const form = new FormData();
+		if (options.data instanceof FormData) options.data.forEach((value, key) => {
+			form.append(key, value);
+		});
+		else for (const key of Object.keys(options.data)) form.append(key, options.data[key]);
+		output.body = form;
+		const headers = new Headers(output.headers);
+		headers.delete("content-type");
+		output.headers = headers;
+	} else if (type.includes("application/json") || typeof options.data === "object") output.body = JSON.stringify(options.data);
+	return output;
+};
+var CapacitorHttpPluginWeb = class extends WebPlugin {
+	/**
+	* Perform an Http request given a set of options
+	* @param options Options to build the HTTP request
+	*/
+	async request(options) {
+		const requestInit = buildRequestInit(options, options.webFetchExtra);
+		const urlParams = buildUrlParams(options.params, options.shouldEncodeUrlParams);
+		const url = urlParams ? `${options.url}?${urlParams}` : options.url;
+		const response = await fetch(url, requestInit);
+		const contentType = response.headers.get("content-type") || "";
+		let { responseType = "text" } = response.ok ? options : {};
+		if (contentType.includes("application/json")) responseType = "json";
+		let data;
+		let blob;
+		switch (responseType) {
+			case "arraybuffer":
+			case "blob":
+				blob = await response.blob();
+				data = await readBlobAsBase64(blob);
+				break;
+			case "json":
+				data = await response.json();
+				break;
+			default: data = await response.text();
+		}
+		const headers = {};
+		response.headers.forEach((value, key) => {
+			headers[key] = value;
+		});
+		return {
+			data,
+			headers,
+			status: response.status,
+			url: response.url
+		};
+	}
+	/**
+	* Perform an Http GET request given a set of options
+	* @param options Options to build the HTTP request
+	*/
+	async get(options) {
+		return this.request(Object.assign(Object.assign({}, options), { method: "GET" }));
+	}
+	/**
+	* Perform an Http POST request given a set of options
+	* @param options Options to build the HTTP request
+	*/
+	async post(options) {
+		return this.request(Object.assign(Object.assign({}, options), { method: "POST" }));
+	}
+	/**
+	* Perform an Http PUT request given a set of options
+	* @param options Options to build the HTTP request
+	*/
+	async put(options) {
+		return this.request(Object.assign(Object.assign({}, options), { method: "PUT" }));
+	}
+	/**
+	* Perform an Http PATCH request given a set of options
+	* @param options Options to build the HTTP request
+	*/
+	async patch(options) {
+		return this.request(Object.assign(Object.assign({}, options), { method: "PATCH" }));
+	}
+	/**
+	* Perform an Http DELETE request given a set of options
+	* @param options Options to build the HTTP request
+	*/
+	async delete(options) {
+		return this.request(Object.assign(Object.assign({}, options), { method: "DELETE" }));
+	}
+};
+registerPlugin("CapacitorHttp", { web: () => new CapacitorHttpPluginWeb() });
+/******** END HTTP PLUGIN ********/
+/******** SYSTEM BARS PLUGIN ********/
+/**
+* Available status bar styles.
+*/
+var SystemBarsStyle;
+(function(SystemBarsStyle) {
+	/**
+	* Light system bar content on a dark background.
+	*
+	* @since 8.0.0
+	*/
+	SystemBarsStyle["Dark"] = "DARK";
+	/**
+	* For dark system bar content on a light background.
+	*
+	* @since 8.0.0
+	*/
+	SystemBarsStyle["Light"] = "LIGHT";
+	/**
+	* The style is based on the device appearance or the underlying content.
+	* If the device is using Dark mode, the system bars content will be light.
+	* If the device is using Light mode, the system bars content will be dark.
+	*
+	* @since 8.0.0
+	*/
+	SystemBarsStyle["Default"] = "DEFAULT";
+})(SystemBarsStyle || (SystemBarsStyle = {}));
+/**
+* Available system bar types.
+*/
+var SystemBarType;
+(function(SystemBarType) {
+	/**
+	* The top status bar on both Android and iOS.
+	*
+	* @since 8.0.0
+	*/
+	SystemBarType["StatusBar"] = "StatusBar";
+	/**
+	* The navigation bar (or gesture bar on iOS) on both Android and iOS.
+	*
+	* @since 8.0.0
+	*/
+	SystemBarType["NavigationBar"] = "NavigationBar";
+})(SystemBarType || (SystemBarType = {}));
+var SystemBarsPluginWeb = class extends WebPlugin {
+	async setStyle() {
+		this.unavailable("not available for web");
+	}
+	async setAnimation() {
+		this.unavailable("not available for web");
+	}
+	async show() {
+		this.unavailable("not available for web");
+	}
+	async hide() {
+		this.unavailable("not available for web");
+	}
+};
+registerPlugin("SystemBars", { web: () => new SystemBarsPluginWeb() });
+// node_modules/@capacitor/local-notifications/dist/esm/definitions.js
+/**
+* Day of the week. Used for scheduling notifications on a particular weekday.
+*/
+var Weekday;
+(function(Weekday) {
+	Weekday[Weekday["Sunday"] = 1] = "Sunday";
+	Weekday[Weekday["Monday"] = 2] = "Monday";
+	Weekday[Weekday["Tuesday"] = 3] = "Tuesday";
+	Weekday[Weekday["Wednesday"] = 4] = "Wednesday";
+	Weekday[Weekday["Thursday"] = 5] = "Thursday";
+	Weekday[Weekday["Friday"] = 6] = "Friday";
+	Weekday[Weekday["Saturday"] = 7] = "Saturday";
+})(Weekday || (Weekday = {}));
+// node_modules/@capacitor/local-notifications/dist/esm/index.js
+var LocalNotifications = registerPlugin("LocalNotifications", { web: () => __vitePreload(() => import("./web-CEDgCi0M.js").then((m) => new m.LocalNotificationsWeb()), []) });
 // node_modules/react/cjs/react-jsx-runtime.production.js
 /**
 * @license React
@@ -11631,6 +12157,7 @@ function registerSW(options = {}) {
 */
 var require_react_jsx_runtime_production = /* @__PURE__ */ __commonJSMin(((exports) => {
 	var REACT_ELEMENT_TYPE = Symbol.for("react.transitional.element");
+	var REACT_FRAGMENT_TYPE = Symbol.for("react.fragment");
 	function jsxProd(type, config, maybeKey) {
 		var key = null;
 		void 0 !== maybeKey && (key = "" + maybeKey);
@@ -11648,20 +12175,18 @@ var require_react_jsx_runtime_production = /* @__PURE__ */ __commonJSMin(((expor
 			props: maybeKey
 		};
 	}
+	exports.Fragment = REACT_FRAGMENT_TYPE;
 	exports.jsx = jsxProd;
 	exports.jsxs = jsxProd;
 }));
-// node_modules/react/jsx-runtime.js
-var require_jsx_runtime = /* @__PURE__ */ __commonJSMin(((exports, module) => {
-	module.exports = require_react_jsx_runtime_production();
-}));
 // src/App.tsx
-var import_react = /* @__PURE__ */ __toESM(require_react(), 1);
-var import_jsx_runtime = require_jsx_runtime();
 /**
 * @license
 * SPDX-License-Identifier: Apache-2.0
 */
+var import_jsx_runtime = (/* @__PURE__ */ __commonJSMin(((exports, module) => {
+	module.exports = require_react_jsx_runtime_production();
+})))();
 var COC_NAMES = {
 	1e6: "Army Camp",
 	1000001: "Town Hall",
@@ -11726,93 +12251,467 @@ var COC_NAMES = {
 	93000001: "Lab Assistant",
 	93000002: "Prospector"
 };
+Object.assign(COC_NAMES, {
+	73e6: "L.A.S.S.I",
+	73000001: "Mighty Yak",
+	73000002: "Electro Owl",
+	73000003: "Unicorn",
+	73000004: "Phoenix",
+	73000007: "Poison Lizard",
+	73000008: "Diggy",
+	73000009: "Frosty",
+	73000010: "Spirit Fox",
+	73000011: "Angry Jelly",
+	73000016: "Sneezy",
+	73000017: "Greedy Raven",
+	4e6: "Barbarian",
+	4000001: "Archer",
+	4000002: "Goblin",
+	4000003: "Giant",
+	4000004: "Wall Breaker",
+	4000005: "Balloon",
+	4000006: "Wizard",
+	4000007: "Healer",
+	4000008: "Dragon",
+	4000009: "P.E.K.K.A",
+	4000010: "Minion",
+	4000011: "Hog Rider",
+	4000012: "Valkyrie",
+	4000013: "Golem",
+	4000015: "Witch",
+	4000017: "Lava Hound",
+	4000022: "Bowler",
+	4000023: "Baby Dragon",
+	4000024: "Miner",
+	4000051: "Wall Wrecker",
+	4000052: "Battle Blimp",
+	4000053: "Yeti",
+	4000058: "Ice Golem",
+	4000059: "Electro Dragon",
+	4000062: "Stone Slammer",
+	4000065: "Dragon Rider",
+	4000075: "Siege Barracks",
+	4000082: "Headhunter",
+	4000087: "Log Launcher",
+	4000091: "Flame Flinger",
+	4000092: "Battle Drill",
+	4000095: "Electro Titan",
+	4000097: "Apprentice Warden",
+	4000109: "Ruin Witch",
+	4000110: "Root Rider",
+	4000123: "Druid",
+	4000132: "Thrower",
+	4000135: "Troop Launcher",
+	4000150: "Furnace",
+	4000177: "Meteor Golem",
+	4000188: "Sky Wagon",
+	26e6: "Lightning Spell",
+	26000001: "Healing Spell",
+	26000002: "Rage Spell",
+	26000003: "Jump Spell",
+	26000005: "Freeze Spell",
+	26000009: "Poison Spell",
+	26000010: "Earthquake Spell",
+	26000011: "Haste Spell",
+	26000016: "Clone Spell",
+	26000017: "Skeleton Spell",
+	26000028: "Bat Spell",
+	26000035: "Invisibility Spell",
+	26000053: "Recall Spell",
+	26000070: "Overgrowth Spell",
+	26000098: "Revive Spell",
+	26000109: "Ice Block Spell",
+	26000120: "Totem Spell",
+	26000123: "Angry Spell"
+});
 var STORAGE_KEY = "coc_builder_potion_saved_v2";
 var LEGACY_STORAGE_KEY = "coc_builder_potion_saved_v1";
-var DEFAULT_BUILDERS = Array.from({ length: 7 }, () => ({
-	d: "",
-	h: "",
-	m: "",
-	s: 0,
-	upgradeTitle: void 0,
-	upgradeLevel: void 0,
-	rawId: void 0
-}));
-function triggerHaptic(pattern = 12) {
+var ACCOUNTS_STORAGE_KEY = "clash_planner_accounts_v1";
+var SCHEDULED_ALERTS_STORAGE_KEY = "clashPlanner_scheduledAlerts";
+function loadScheduledAlertsMap() {
+	try {
+		const raw = localStorage.getItem(SCHEDULED_ALERTS_STORAGE_KEY);
+		if (!raw) return {};
+		const parsed = JSON.parse(raw);
+		if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+		return parsed;
+	} catch {
+		return {};
+	}
+}
+function saveScheduledAlertsMap(map) {
+	try {
+		localStorage.setItem(SCHEDULED_ALERTS_STORAGE_KEY, JSON.stringify(map));
+	} catch {}
+}
+function trackVillageNotificationId(villageId, notificationId) {
+	const map = loadScheduledAlertsMap();
+	const list = Array.isArray(map[villageId]) ? map[villageId] : [];
+	if (!list.includes(notificationId)) {
+		map[villageId] = [...list, notificationId];
+		saveScheduledAlertsMap(map);
+	}
+}
+function untrackVillageNotificationId(villageId, notificationId) {
+	const map = loadScheduledAlertsMap();
+	if (!Array.isArray(map[villageId])) return;
+	map[villageId] = map[villageId].filter((id) => id !== notificationId);
+	saveScheduledAlertsMap(map);
+}
+/**
+* Generates a deterministic positive 31-bit integer notification ID from villageId and slotKey
+* to prevent notification collisions across multiple village profiles and upgrade slots.
+*/
+function getSlotNotificationId(villageId, slotKey) {
+	const combined = `${villageId}::${slotKey}`;
+	let hash = 2166136261;
+	for (let i = 0; i < combined.length; i++) {
+		hash ^= combined.charCodeAt(i);
+		hash = Math.imul(hash, 16777619);
+	}
+	return (hash >>> 0) % 214748e4 + 1e3;
+}
+async function requestNotificationPermissions() {
+	try {
+		await LocalNotifications.requestPermissions();
+	} catch {}
+}
+async function cancelSlotNotification(villageId, slotKey) {
+	const notificationId = getSlotNotificationId(villageId, slotKey);
+	untrackVillageNotificationId(villageId, notificationId);
+	try {
+		await LocalNotifications.cancel({ notifications: [{ id: notificationId }] });
+	} catch {}
+}
+async function scheduleExactSlotNotification(params) {
+	const { villageId, slotKey, title, body, targetTimestamp } = params;
+	const notificationId = getSlotNotificationId(villageId, slotKey);
+	try {
+		await LocalNotifications.cancel({ notifications: [{ id: notificationId }] });
+	} catch {}
+	if (!targetTimestamp || targetTimestamp <= Date.now() + 1e3) {
+		untrackVillageNotificationId(villageId, notificationId);
+		return;
+	}
+	trackVillageNotificationId(villageId, notificationId);
+	try {
+		await LocalNotifications.schedule({ notifications: [{
+			id: notificationId,
+			title,
+			body,
+			schedule: {
+				at: new Date(targetTimestamp),
+				allowWhileIdle: true
+			},
+			sound: "default"
+		}] });
+	} catch {}
+}
+async function scheduleBuilderNotificationsForVillage(villageId, villageName, results) {
+	const activeIndices = new Set(results.map((r) => r.builderIndex));
+	for (let idx = 0; idx < 7; idx++) if (!activeIndices.has(idx)) await cancelSlotNotification(villageId, `builder_${idx}`);
+	for (const item of results) {
+		const buildingName = item.upgradeTitle || `Builder ${item.builderIndex + 1} Upgrade`;
+		const itemLvl = typeof item.upgradeLevel === "number" ? item.upgradeLevel : 1;
+		await scheduleExactSlotNotification({
+			villageId,
+			slotKey: `builder_${item.builderIndex}`,
+			title: `🔨 Builder Alert • ${villageName}`,
+			body: `${villageName}: ${buildingName} (LVL ${itemLvl}) upgrade completed! Builder is now free.`,
+			targetTimestamp: item.targetTimestamp
+		});
+	}
+}
+async function scheduleLabNotificationsForVillage(villageId, villageName, mainTimer, mainTargetTs, goblinTimer, goblinTargetTs) {
+	if (mainTargetTs && getTimerTotalSeconds(mainTimer) > 0) {
+		const troopSpellName = resolveUpgradeName(mainTimer.rawId, mainTimer.upgradeTitle || "Troop / Spell Upgrade");
+		const itemLvl = typeof mainTimer.upgradeLevel === "number" ? mainTimer.upgradeLevel : 1;
+		await scheduleExactSlotNotification({
+			villageId,
+			slotKey: "lab_main",
+			title: `⚗️ Laboratory Alert • ${villageName}`,
+			body: `${villageName}: ${troopSpellName} (LVL ${itemLvl}) research finished!`,
+			targetTimestamp: mainTargetTs
+		});
+	} else await cancelSlotNotification(villageId, "lab_main");
+	if (goblinTargetTs && getTimerTotalSeconds(goblinTimer) > 0) {
+		const goblinTroopSpellName = resolveUpgradeName(goblinTimer.rawId, goblinTimer.upgradeTitle || "Goblin Researcher");
+		const goblinItemLvl = typeof goblinTimer.upgradeLevel === "number" ? goblinTimer.upgradeLevel : 1;
+		await scheduleExactSlotNotification({
+			villageId,
+			slotKey: "lab_goblin",
+			title: `⚗️ Laboratory Alert • ${villageName}`,
+			body: `${villageName}: ${goblinTroopSpellName} (LVL ${goblinItemLvl}) research finished!`,
+			targetTimestamp: goblinTargetTs
+		});
+	} else await cancelSlotNotification(villageId, "lab_goblin");
+}
+async function schedulePetNotificationForVillage(villageId, villageName, petTimerVal, targetPetFinishTimestamp) {
+	if (targetPetFinishTimestamp && getTimerTotalSeconds(petTimerVal) > 0) {
+		const petName = resolveUpgradeName(petTimerVal.rawId, petTimerVal.upgradeTitle || "Active Pet Upgrade");
+		const petLvl = typeof petTimerVal.upgradeLevel === "number" ? petTimerVal.upgradeLevel : 1;
+		await scheduleExactSlotNotification({
+			villageId,
+			slotKey: "pet_main",
+			title: `🐾 Pet House Alert • ${villageName}`,
+			body: `${villageName}: ${petName} (LVL ${petLvl}) upgrade is complete! Pet is ready for battle.`,
+			targetTimestamp: targetPetFinishTimestamp
+		});
+	} else await cancelSlotNotification(villageId, "pet_main");
+}
+async function cancelAllNotificationsForVillage(villageId) {
+	const map = loadScheduledAlertsMap();
+	const storedIds = Array.isArray(map[villageId]) ? map[villageId] : [];
+	const deterministicSlotIds = [
+		getSlotNotificationId(villageId, "builder_0"),
+		getSlotNotificationId(villageId, "builder_1"),
+		getSlotNotificationId(villageId, "builder_2"),
+		getSlotNotificationId(villageId, "builder_3"),
+		getSlotNotificationId(villageId, "builder_4"),
+		getSlotNotificationId(villageId, "builder_5"),
+		getSlotNotificationId(villageId, "builder_6"),
+		getSlotNotificationId(villageId, "lab_main"),
+		getSlotNotificationId(villageId, "lab_goblin"),
+		getSlotNotificationId(villageId, "pet_main")
+	];
+	const uniqueIds = Array.from(/* @__PURE__ */ new Set([...storedIds, ...deterministicSlotIds]));
+	delete map[villageId];
+	saveScheduledAlertsMap(map);
+	if (uniqueIds.length > 0) try {
+		await LocalNotifications.cancel({ notifications: uniqueIds.map((id) => ({ id })) });
+	} catch {}
+}
+function createEmptyTimer() {
+	return {
+		d: "",
+		h: "",
+		m: "",
+		s: 0,
+		upgradeTitle: void 0,
+		upgradeLevel: void 0,
+		rawId: void 0
+	};
+}
+function createEmptyBuilders() {
+	return Array.from({ length: 7 }, () => createEmptyTimer());
+}
+function createDefaultSavedState() {
+	return {
+		mode: "single",
+		numBuilders: 2,
+		builders: createEmptyBuilders(),
+		potions: "",
+		lockedResults: [],
+		lockedSavedText: "",
+		researchPotions: 1,
+		labTimer: createEmptyTimer(),
+		goblinLabTimer: createEmptyTimer(),
+		targetLabTimestamp: null,
+		labFormattedDate: "",
+		labSavedText: "",
+		targetGoblinLabTimestamp: null,
+		goblinLabFormattedDate: "",
+		petPotions: 1,
+		petTimer: createEmptyTimer(),
+		targetPetTimestamp: null,
+		petFormattedDate: "",
+		petSavedText: ""
+	};
+}
+function triggerHaptic(pattern = 15) {
 	try {
 		if (typeof navigator !== "undefined" && typeof navigator.vibrate === "function") navigator.vibrate(pattern);
 	} catch {}
 }
-function resolveUpgradeName(rawData) {
-	if (rawData === void 0 || rawData === null) return "Defense Upgrade";
+function resolveUpgradeName(rawData, fallback = "Defense Upgrade") {
+	if (rawData === void 0 || rawData === null) return fallback;
 	const strKey = String(rawData).trim();
 	const numKey = Number(strKey);
-	return COC_NAMES[rawData] || COC_NAMES[numKey] || COC_NAMES[strKey] || "Defense Upgrade";
+	return COC_NAMES[rawData] || COC_NAMES[numKey] || COC_NAMES[strKey] || fallback;
 }
-function loadSavedState() {
+function normalizeSingleTimer(savedB, fallbackLabel) {
+	if (!savedB || typeof savedB !== "object") return createEmptyTimer();
+	const rawId = savedB.rawId !== void 0 && savedB.rawId !== null ? String(savedB.rawId) : void 0;
+	const resolved = rawId ? resolveUpgradeName(rawId, fallbackLabel || "") : void 0;
+	return {
+		d: savedB.d ?? "",
+		h: savedB.h ?? "",
+		m: savedB.m ?? "",
+		s: savedB.s ?? 0,
+		upgradeTitle: resolved || savedB.upgradeTitle,
+		upgradeLevel: typeof savedB.upgradeLevel === "number" ? savedB.upgradeLevel : void 0,
+		rawId
+	};
+}
+function normalizeSavedState(parsed) {
+	if (!parsed || typeof parsed !== "object") return createDefaultSavedState();
+	const builders = Array.from({ length: 7 }, (_, idx) => {
+		const savedB = parsed.builders?.[idx];
+		const rawId = savedB?.rawId !== void 0 && savedB?.rawId !== null ? String(savedB.rawId) : void 0;
+		const reResolvedTitle = rawId ? resolveUpgradeName(rawId) : void 0;
+		return {
+			d: savedB?.d ?? "",
+			h: savedB?.h ?? "",
+			m: savedB?.m ?? "",
+			s: savedB?.s ?? 0,
+			upgradeTitle: reResolvedTitle && reResolvedTitle !== "Defense Upgrade" ? reResolvedTitle : savedB?.upgradeTitle ?? savedB?.customLabel,
+			upgradeLevel: typeof savedB?.upgradeLevel === "number" ? savedB.upgradeLevel : void 0,
+			rawId
+		};
+	});
+	const normalizedResults = Array.isArray(parsed.lockedResults) ? parsed.lockedResults.map((item, idx) => {
+		const bIdx = typeof item.builderIndex === "number" ? item.builderIndex : idx;
+		const isGoblin = !!item.isGoblin || bIdx === 6;
+		const rawId = item.rawId !== void 0 && item.rawId !== null ? String(item.rawId) : builders[bIdx]?.rawId;
+		const reResolvedTitle = rawId ? resolveUpgradeName(rawId) : void 0;
+		return {
+			builderIndex: bIdx,
+			slotBadge: item.slotBadge || (isGoblin ? "[GOBLIN]" : `[B${bIdx + 1}]`),
+			upgradeTitle: reResolvedTitle && reResolvedTitle !== "Defense Upgrade" ? reResolvedTitle : item.upgradeTitle || item.builderLabel || (isGoblin ? "Goblin Builder" : `Builder ${bIdx + 1}`),
+			upgradeLevel: typeof item.upgradeLevel === "number" ? item.upgradeLevel : void 0,
+			rawId,
+			isGoblin,
+			targetTimestamp: item.targetTimestamp,
+			formattedDate: item.formattedDate
+		};
+	}) : [];
+	return {
+		mode: parsed.mode === "multi" ? "multi" : "single",
+		numBuilders: typeof parsed.numBuilders === "number" && parsed.numBuilders >= 1 && parsed.numBuilders <= 7 ? parsed.numBuilders : 2,
+		builders,
+		potions: typeof parsed.potions === "string" ? parsed.potions : "",
+		lockedResults: normalizedResults,
+		lockedSavedText: typeof parsed.lockedSavedText === "string" ? parsed.lockedSavedText : "",
+		researchPotions: typeof parsed.researchPotions === "number" && parsed.researchPotions >= 0 ? parsed.researchPotions : 1,
+		labTimer: normalizeSingleTimer(parsed.labTimer, "Troop / Spell Upgrade"),
+		goblinLabTimer: normalizeSingleTimer(parsed.goblinLabTimer, "Goblin Researcher"),
+		targetLabTimestamp: typeof parsed.targetLabTimestamp === "number" ? parsed.targetLabTimestamp : null,
+		labFormattedDate: typeof parsed.labFormattedDate === "string" ? parsed.labFormattedDate : "",
+		labSavedText: typeof parsed.labSavedText === "string" ? parsed.labSavedText : "",
+		targetGoblinLabTimestamp: typeof parsed.targetGoblinLabTimestamp === "number" ? parsed.targetGoblinLabTimestamp : null,
+		goblinLabFormattedDate: typeof parsed.goblinLabFormattedDate === "string" ? parsed.goblinLabFormattedDate : "",
+		petPotions: typeof parsed.petPotions === "number" && parsed.petPotions >= 0 ? parsed.petPotions : 1,
+		petTimer: normalizeSingleTimer(parsed.petTimer, "Active Pet Upgrade"),
+		targetPetTimestamp: typeof parsed.targetPetTimestamp === "number" ? parsed.targetPetTimestamp : null,
+		petFormattedDate: typeof parsed.petFormattedDate === "string" ? parsed.petFormattedDate : "",
+		petSavedText: typeof parsed.petSavedText === "string" ? parsed.petSavedText : ""
+	};
+}
+function loadLegacySingleAccountState() {
 	try {
 		const raw = localStorage.getItem(STORAGE_KEY) || localStorage.getItem(LEGACY_STORAGE_KEY);
-		if (!raw) return {
-			mode: "single",
-			numBuilders: 2,
-			builders: DEFAULT_BUILDERS,
-			potions: "",
-			lockedResults: [],
-			lockedSavedText: ""
+		if (!raw) return createDefaultSavedState();
+		return normalizeSavedState(JSON.parse(raw));
+	} catch {
+		return createDefaultSavedState();
+	}
+}
+function loadMultiAccountStorage() {
+	const fallbackMainState = loadLegacySingleAccountState();
+	try {
+		const rawAccounts = localStorage.getItem(ACCOUNTS_STORAGE_KEY);
+		if (!rawAccounts) return {
+			activeAccountId: "main",
+			accounts: [{
+				id: "main",
+				name: "Main Account",
+				data: fallbackMainState
+			}]
 		};
-		const parsed = JSON.parse(raw);
-		const builders = Array.from({ length: 7 }, (_, idx) => {
-			const savedB = parsed.builders?.[idx];
-			const rawId = savedB?.rawId !== void 0 && savedB?.rawId !== null ? String(savedB.rawId) : void 0;
-			const reResolvedTitle = rawId ? resolveUpgradeName(rawId) : void 0;
-			return {
-				d: savedB?.d ?? "",
-				h: savedB?.h ?? "",
-				m: savedB?.m ?? "",
-				s: savedB?.s ?? 0,
-				upgradeTitle: reResolvedTitle && reResolvedTitle !== "Defense Upgrade" ? reResolvedTitle : savedB?.upgradeTitle ?? savedB?.customLabel,
-				upgradeLevel: typeof savedB?.upgradeLevel === "number" ? savedB.upgradeLevel : void 0,
-				rawId
-			};
-		});
-		const normalizedResults = Array.isArray(parsed.lockedResults) ? parsed.lockedResults.map((item, idx) => {
-			const bIdx = typeof item.builderIndex === "number" ? item.builderIndex : idx;
-			const isGoblin = !!item.isGoblin || bIdx === 6;
-			const rawId = item.rawId !== void 0 && item.rawId !== null ? String(item.rawId) : builders[bIdx]?.rawId;
-			const reResolvedTitle = rawId ? resolveUpgradeName(rawId) : void 0;
-			return {
-				builderIndex: bIdx,
-				slotBadge: item.slotBadge || (isGoblin ? "[GOBLIN]" : `[B${bIdx + 1}]`),
-				upgradeTitle: reResolvedTitle && reResolvedTitle !== "Defense Upgrade" ? reResolvedTitle : item.upgradeTitle || item.builderLabel || (isGoblin ? "Goblin Builder" : `Builder ${bIdx + 1}`),
-				upgradeLevel: typeof item.upgradeLevel === "number" ? item.upgradeLevel : void 0,
-				rawId,
-				isGoblin,
-				targetTimestamp: item.targetTimestamp,
-				formattedDate: item.formattedDate
-			};
-		}) : [];
+		const parsed = JSON.parse(rawAccounts);
+		if (!Array.isArray(parsed.accounts) || parsed.accounts.length === 0) return {
+			activeAccountId: "main",
+			accounts: [{
+				id: "main",
+				name: "Main Account",
+				data: fallbackMainState
+			}]
+		};
+		const normalizedAccounts = parsed.accounts.map((acc, index) => ({
+			id: acc.id || (index === 0 ? "main" : `village_${index + 1}`),
+			name: acc.name || (index === 0 ? "Main Account" : `Village ${index + 1}`),
+			tag: acc.tag,
+			data: normalizeSavedState(acc.data)
+		}));
 		return {
-			mode: parsed.mode === "multi" ? "multi" : "single",
-			numBuilders: typeof parsed.numBuilders === "number" && parsed.numBuilders >= 1 && parsed.numBuilders <= 7 ? parsed.numBuilders : 2,
-			builders,
-			potions: typeof parsed.potions === "string" ? parsed.potions : "",
-			lockedResults: normalizedResults,
-			lockedSavedText: typeof parsed.lockedSavedText === "string" ? parsed.lockedSavedText : ""
+			activeAccountId: normalizedAccounts.some((a) => a.id === parsed.activeAccountId) ? parsed.activeAccountId : normalizedAccounts[0].id,
+			accounts: normalizedAccounts
 		};
 	} catch {
 		return {
-			mode: "single",
-			numBuilders: 2,
-			builders: DEFAULT_BUILDERS,
-			potions: "",
-			lockedResults: [],
-			lockedSavedText: ""
+			activeAccountId: "main",
+			accounts: [{
+				id: "main",
+				name: "Main Account",
+				data: fallbackMainState
+			}]
 		};
 	}
 }
+/**
+* 10x Builder Potion Math (1 potion = 10h progress in 1h real time; saves 9h)
+*/
 function calcRealTime(totalBuilderHours, potions) {
 	if (totalBuilderHours === 0) return 0;
 	if (totalBuilderHours <= potions * 10) return totalBuilderHours / 10;
 	else return totalBuilderHours - potions * 9;
+}
+/**
+* 24x Research & Pet Potion Calculation Engine:
+* - 1 Potion = 24x Speed Boost for 1 Hour (3,600 seconds)
+* - 1 Hour of potion boost consumes 24 hours (86,400 seconds) of upgrade progress
+* - Effective time saved per potion = 23 hours (82,800 seconds)
+*/
+function calc24xRealTimeSeconds(remainingSeconds, potionCount) {
+	if (remainingSeconds <= 0) return 0;
+	const totalBoostCapacity = potionCount * 86400;
+	if (remainingSeconds <= totalBoostCapacity) return remainingSeconds / 24;
+	else return potionCount * 3600 + (remainingSeconds - totalBoostCapacity);
+}
+function formatCompletionDate(timestamp) {
+	return new Date(timestamp).toLocaleString("en-US", {
+		month: "short",
+		day: "numeric",
+		hour: "numeric",
+		minute: "2-digit",
+		hour12: true
+	});
+}
+function formatSavedSeconds(savedSeconds) {
+	if (savedSeconds <= 0) return "0h";
+	const totalHours = Math.round(savedSeconds / 3600);
+	const days = Math.floor(totalHours / 24);
+	const hours = totalHours % 24;
+	let out = "";
+	if (days > 0) out += `${days}d `;
+	if (hours > 0 || days === 0) out += `${hours}h`;
+	return out.trim();
+}
+function getTimerTotalSeconds(timer) {
+	const d = Math.max(0, parseInt(timer.d, 10) || 0);
+	const h = Math.min(24, Math.max(0, parseInt(timer.h, 10) || 0));
+	const m = Math.min(60, Math.max(0, parseInt(timer.m, 10) || 0));
+	const s = Math.max(0, timer.s || 0);
+	return d * 86400 + h * 3600 + m * 60 + s;
+}
+function convertRawItemToTimer(item, fallbackTitle) {
+	const timer = Math.max(0, Math.floor(item.timer || 0));
+	const days = Math.floor(timer / 86400);
+	const hours = Math.floor(timer % 86400 / 3600);
+	const mins = Math.floor(timer % 3600 / 60);
+	const secs = timer % 60;
+	const itemData = item.data ?? item.id;
+	const rawIdStr = itemData !== void 0 && itemData !== null ? String(itemData) : void 0;
+	const upgradeName = resolveUpgradeName(itemData, fallbackTitle);
+	return {
+		d: String(days),
+		h: String(hours),
+		m: String(mins),
+		s: secs,
+		upgradeTitle: upgradeName,
+		upgradeLevel: typeof item.lvl === "number" ? item.lvl : void 0,
+		rawId: rawIdStr
+	};
 }
 function computeTimeParts(targetTimestamp) {
 	const remMs = targetTimestamp - Date.now();
@@ -11843,7 +12742,7 @@ function retriggerClass(el, className) {
 * [ DD d ] : [ HH h ] : [ MM m ] : [ SS s ]
 * Updates digit spans directly via DOM refs so 1-second ticks never re-render parent UI.
 */
-var LiveHudTicker = import_react.memo(({ targetTimestamp }) => {
+var LiveHudTicker = import_react.memo(({ targetTimestamp, label = "Live Countdown", finishBadgeText = "⚡ UPGRADE FINISHED! BUILDER FREE", accentColorClass = "text-[#fbbf24]" }) => {
 	const initialParts = computeTimeParts(targetTimestamp);
 	const [isFinished, setIsFinished] = (0, import_react.useState)(initialParts.isFinished);
 	const prevPartsRef = (0, import_react.useRef)(initialParts);
@@ -11901,14 +12800,14 @@ var LiveHudTicker = import_react.memo(({ targetTimestamp }) => {
 		className: "badge-finished-glow w-full rounded-xl px-3 py-2.5 flex items-center justify-center gap-2 text-center",
 		children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
 			className: "text-xs sm:text-sm font-extrabold tracking-wide text-[#22c55e] uppercase",
-			children: "⚡ UPGRADE FINISHED! BUILDER FREE"
+			children: finishBadgeText
 		})
 	});
 	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 		className: "w-full",
 		children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
 			className: "text-[10px] font-bold text-gray-300 uppercase tracking-wider mb-1.5",
-			children: "Live Countdown"
+			children: label
 		}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 			className: "flex items-center justify-between sm:justify-start gap-1 sm:gap-1.5",
 			children: [
@@ -11920,7 +12819,7 @@ var LiveHudTicker = import_react.memo(({ targetTimestamp }) => {
 						className: "text-base sm:text-lg font-extrabold text-[#f8fafc] tracking-tight",
 						children: String(initialParts.d).padStart(2, "0")
 					}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-						className: "text-[10px] font-bold text-[#fbbf24]",
+						className: `text-[10px] font-bold ${accentColorClass}`,
 						children: "d"
 					})]
 				}),
@@ -11936,7 +12835,7 @@ var LiveHudTicker = import_react.memo(({ targetTimestamp }) => {
 						className: "text-base sm:text-lg font-extrabold text-[#f8fafc] tracking-tight",
 						children: String(initialParts.h).padStart(2, "0")
 					}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-						className: "text-[10px] font-bold text-[#fbbf24]",
+						className: `text-[10px] font-bold ${accentColorClass}`,
 						children: "h"
 					})]
 				}),
@@ -11964,7 +12863,7 @@ var LiveHudTicker = import_react.memo(({ targetTimestamp }) => {
 					className: "hud-unit flex-1 sm:flex-initial sm:min-w-[58px] rounded-xl px-2 py-1.5 flex items-baseline justify-center gap-0.5 overflow-hidden",
 					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
 						ref: secValRef,
-						className: "inline-block text-base sm:text-lg font-extrabold text-[#fbbf24] tracking-tight",
+						className: `inline-block text-base sm:text-lg font-extrabold ${accentColorClass} tracking-tight`,
 						children: String(initialParts.s).padStart(2, "0")
 					}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
 						className: "text-[10px] font-bold text-gray-300",
@@ -11975,8 +12874,90 @@ var LiveHudTicker = import_react.memo(({ targetTimestamp }) => {
 		})]
 	});
 });
+/**
+* Static 00:00:00:00 4-Unit HUD Ticker when no timer is locked yet
+*/
+var HudTickerIdle = ({ label, accentUnitColorClass = "text-[#fbbf24]", statusNote }) => {
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+		className: "w-full",
+		children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+			className: "flex items-center justify-between mb-1.5",
+			children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+				className: "text-[10px] font-bold text-gray-300 uppercase tracking-wider",
+				children: label
+			}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+				className: "text-[10px] font-extrabold text-gray-400",
+				children: statusNote
+			})]
+		}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+			className: "flex items-center justify-between sm:justify-start gap-1 sm:gap-1.5",
+			children: [
+				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+					className: "hud-unit flex-1 sm:flex-initial sm:min-w-[58px] rounded-xl px-2 py-1.5 flex items-baseline justify-center gap-0.5",
+					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+						className: "text-base sm:text-lg font-extrabold text-[#f8fafc] tracking-tight",
+						children: "00"
+					}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+						className: `text-[10px] font-bold ${accentUnitColorClass}`,
+						children: "d"
+					})]
+				}),
+				/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+					className: "text-gray-400 font-extrabold text-xs select-none",
+					children: ":"
+				}),
+				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+					className: "hud-unit flex-1 sm:flex-initial sm:min-w-[58px] rounded-xl px-2 py-1.5 flex items-baseline justify-center gap-0.5",
+					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+						className: "text-base sm:text-lg font-extrabold text-[#f8fafc] tracking-tight",
+						children: "00"
+					}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+						className: `text-[10px] font-bold ${accentUnitColorClass}`,
+						children: "h"
+					})]
+				}),
+				/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+					className: "text-gray-400 font-extrabold text-xs select-none",
+					children: ":"
+				}),
+				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+					className: "hud-unit flex-1 sm:flex-initial sm:min-w-[58px] rounded-xl px-2 py-1.5 flex items-baseline justify-center gap-0.5",
+					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+						className: "text-base sm:text-lg font-extrabold text-[#f8fafc] tracking-tight",
+						children: "00"
+					}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+						className: "text-[10px] font-bold text-elixir",
+						children: "m"
+					})]
+				}),
+				/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+					className: "text-gray-400 font-extrabold text-xs select-none",
+					children: ":"
+				}),
+				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+					className: "hud-unit flex-1 sm:flex-initial sm:min-w-[58px] rounded-xl px-2 py-1.5 flex items-baseline justify-center gap-0.5",
+					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+						className: `text-base sm:text-lg font-extrabold ${accentUnitColorClass} tracking-tight`,
+						children: "00"
+					}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+						className: "text-[10px] font-bold text-gray-300",
+						children: "s"
+					})]
+				})
+			]
+		})]
+	});
+};
 function App() {
-	const initial = loadSavedState();
+	const initialMulti = loadMultiAccountStorage();
+	const initialActiveProfile = initialMulti.accounts.find((a) => a.id === initialMulti.activeAccountId) || initialMulti.accounts[0];
+	const initial = initialActiveProfile.data;
+	const [accounts, setAccounts] = (0, import_react.useState)(initialMulti.accounts);
+	const [activeAccountId, setActiveAccountId] = (0, import_react.useState)(initialActiveProfile.id);
+	const [renamingAccountId, setRenamingAccountId] = (0, import_react.useState)(null);
+	const [renameVillageInput, setRenameVillageInput] = (0, import_react.useState)("");
+	const [confirmDeleteVillage, setConfirmDeleteVillage] = (0, import_react.useState)(false);
+	const [activeTab, setActiveTab] = (0, import_react.useState)("builders");
 	const [currentMode, setCurrentMode] = (0, import_react.useState)(initial.mode);
 	const [numBuilders, setNumBuilders] = (0, import_react.useState)(initial.numBuilders);
 	const [builders, setBuilders] = (0, import_react.useState)(initial.builders);
@@ -11985,7 +12966,22 @@ function App() {
 	const [savedText, setSavedText] = (0, import_react.useState)(initial.lockedSavedText || "");
 	const [showResult, setShowResult] = (0, import_react.useState)(() => (initial.lockedResults?.length ?? 0) > 0);
 	const [animKey, setAnimKey] = (0, import_react.useState)(0);
+	const [researchPotions, setResearchPotions] = (0, import_react.useState)(initial.researchPotions ?? 1);
+	const [labTimer, setLabTimer] = (0, import_react.useState)(initial.labTimer || createEmptyTimer());
+	const [goblinLabTimer, setGoblinLabTimer] = (0, import_react.useState)(initial.goblinLabTimer || createEmptyTimer());
+	const [targetLabTimestamp, setTargetLabTimestamp] = (0, import_react.useState)(initial.targetLabTimestamp ?? null);
+	const [labFormattedDate, setLabFormattedDate] = (0, import_react.useState)(initial.labFormattedDate || "");
+	const [labSavedText, setLabSavedText] = (0, import_react.useState)(initial.labSavedText || "");
+	const [targetGoblinLabTimestamp, setTargetGoblinLabTimestamp] = (0, import_react.useState)(initial.targetGoblinLabTimestamp ?? null);
+	const [goblinLabFormattedDate, setGoblinLabFormattedDate] = (0, import_react.useState)(initial.goblinLabFormattedDate || "");
+	const [petPotions, setPetPotions] = (0, import_react.useState)(initial.petPotions ?? 1);
+	const [petTimer, setPetTimer] = (0, import_react.useState)(initial.petTimer || createEmptyTimer());
+	const [targetPetTimestamp, setTargetPetTimestamp] = (0, import_react.useState)(initial.targetPetTimestamp ?? null);
+	const [petFormattedDate, setPetFormattedDate] = (0, import_react.useState)(initial.petFormattedDate || "");
+	const [petSavedText, setPetSavedText] = (0, import_react.useState)(initial.petSavedText || "");
 	const [isImportModalOpen, setIsImportModalOpen] = (0, import_react.useState)(false);
+	const [isAddingNewAccount, setIsAddingNewAccount] = (0, import_react.useState)(false);
+	const [newVillageNameInput, setNewVillageNameInput] = (0, import_react.useState)("");
 	const [jsonInputText, setJsonInputText] = (0, import_react.useState)("");
 	const [toast, setToast] = (0, import_react.useState)(null);
 	const showToast = (type, text) => {
@@ -11999,85 +12995,262 @@ function App() {
 			setToast((prev) => prev?.id === id ? null : prev);
 		}, 3500);
 	};
+	const getActiveVillageName = (targetId = activeAccountId) => {
+		return accounts.find((a) => a.id === targetId)?.name || "Main Account";
+	};
+	(0, import_react.useEffect)(() => {
+		requestNotificationPermissions();
+	}, []);
+	const applySavedStateToActiveView = (d) => {
+		setCurrentMode(d.mode);
+		setNumBuilders(d.numBuilders);
+		setBuilders(d.builders);
+		setPotionsInput(d.potions);
+		setLockedResults(d.lockedResults || []);
+		setSavedText(d.lockedSavedText || "");
+		setShowResult((d.lockedResults?.length ?? 0) > 0);
+		setResearchPotions(d.researchPotions ?? 1);
+		setLabTimer(d.labTimer || createEmptyTimer());
+		setGoblinLabTimer(d.goblinLabTimer || createEmptyTimer());
+		setTargetLabTimestamp(d.targetLabTimestamp ?? null);
+		setLabFormattedDate(d.labFormattedDate || "");
+		setLabSavedText(d.labSavedText || "");
+		setTargetGoblinLabTimestamp(d.targetGoblinLabTimestamp ?? null);
+		setGoblinLabFormattedDate(d.goblinLabFormattedDate || "");
+		setPetPotions(d.petPotions ?? 1);
+		setPetTimer(d.petTimer || createEmptyTimer());
+		setTargetPetTimestamp(d.targetPetTimestamp ?? null);
+		setPetFormattedDate(d.petFormattedDate || "");
+		setPetSavedText(d.petSavedText || "");
+		setAnimKey((prev) => prev + 1);
+	};
 	(0, import_react.useEffect)(() => {
 		try {
-			const stateToSave = {
+			const currentStateToSave = {
 				mode: currentMode,
 				numBuilders,
 				builders,
 				potions: potionsInput,
 				lockedResults,
-				lockedSavedText: savedText
+				lockedSavedText: savedText,
+				researchPotions,
+				labTimer,
+				goblinLabTimer,
+				targetLabTimestamp,
+				labFormattedDate,
+				labSavedText,
+				targetGoblinLabTimestamp,
+				goblinLabFormattedDate,
+				petPotions,
+				petTimer,
+				targetPetTimestamp,
+				petFormattedDate,
+				petSavedText
 			};
-			localStorage.setItem(STORAGE_KEY, JSON.stringify(stateToSave));
+			localStorage.setItem(STORAGE_KEY, JSON.stringify(currentStateToSave));
+			setAccounts((prevAccounts) => {
+				const updatedAccounts = prevAccounts.map((acc) => acc.id === activeAccountId ? {
+					...acc,
+					data: currentStateToSave
+				} : acc);
+				const multiPayload = {
+					activeAccountId,
+					accounts: updatedAccounts
+				};
+				localStorage.setItem(ACCOUNTS_STORAGE_KEY, JSON.stringify(multiPayload));
+				return updatedAccounts;
+			});
 		} catch {}
 	}, [
+		activeAccountId,
 		currentMode,
 		numBuilders,
 		builders,
 		potionsInput,
 		lockedResults,
-		savedText
+		savedText,
+		researchPotions,
+		labTimer,
+		goblinLabTimer,
+		targetLabTimestamp,
+		labFormattedDate,
+		labSavedText,
+		targetGoblinLabTimestamp,
+		goblinLabFormattedDate,
+		petPotions,
+		petTimer,
+		targetPetTimestamp,
+		petFormattedDate,
+		petSavedText
 	]);
-	(0, import_react.useEffect)(() => {
-		const handleStorage = (e) => {
-			if (e.key === STORAGE_KEY && e.newValue) {
-				const synced = loadSavedState();
-				setCurrentMode(synced.mode);
-				setNumBuilders(synced.numBuilders);
-				setBuilders(synced.builders);
-				setPotionsInput(synced.potions);
-				setLockedResults(synced.lockedResults || []);
-				setSavedText(synced.lockedSavedText || "");
-				setShowResult((synced.lockedResults?.length ?? 0) > 0);
-			}
+	const handleAccountChipClick = (account) => {
+		triggerHaptic(15);
+		if (account.id === activeAccountId) {
+			setRenamingAccountId(account.id);
+			setRenameVillageInput(account.name);
+			setConfirmDeleteVillage(false);
+			return;
+		}
+		setActiveAccountId(account.id);
+		applySavedStateToActiveView(account.data);
+	};
+	const handleOpenRenameModal = (account, e) => {
+		e.stopPropagation();
+		triggerHaptic(15);
+		setRenamingAccountId(account.id);
+		setRenameVillageInput(account.name);
+		setConfirmDeleteVillage(false);
+	};
+	const handleSaveRenamedVillage = () => {
+		triggerHaptic(15);
+		if (!renamingAccountId) return;
+		const trimmed = renameVillageInput.trim();
+		if (!trimmed) {
+			showToast("error", "Village name cannot be empty");
+			return;
+		}
+		const targetAccount = accounts.find((acc) => acc.id === renamingAccountId);
+		if (targetAccount) {
+			const accData = renamingAccountId === activeAccountId ? {
+				...targetAccount.data,
+				lockedResults,
+				labTimer,
+				goblinLabTimer,
+				targetLabTimestamp,
+				targetGoblinLabTimestamp,
+				petTimer,
+				targetPetTimestamp
+			} : targetAccount.data;
+			scheduleBuilderNotificationsForVillage(renamingAccountId, trimmed, accData.lockedResults || []);
+			scheduleLabNotificationsForVillage(renamingAccountId, trimmed, accData.labTimer || createEmptyTimer(), accData.targetLabTimestamp ?? null, accData.goblinLabTimer || createEmptyTimer(), accData.targetGoblinLabTimestamp ?? null);
+			schedulePetNotificationForVillage(renamingAccountId, trimmed, accData.petTimer || createEmptyTimer(), accData.targetPetTimestamp ?? null);
+		}
+		setAccounts((prev) => {
+			const updated = prev.map((acc) => acc.id === renamingAccountId ? {
+				...acc,
+				name: trimmed
+			} : acc);
+			try {
+				const multiPayload = {
+					activeAccountId,
+					accounts: updated
+				};
+				localStorage.setItem(ACCOUNTS_STORAGE_KEY, JSON.stringify(multiPayload));
+			} catch {}
+			return updated;
+		});
+		setRenamingAccountId(null);
+		setRenameVillageInput("");
+		setConfirmDeleteVillage(false);
+		showToast("success", `Renamed village to "${trimmed}"`);
+	};
+	const handleConfirmDeleteVillage = () => {
+		triggerHaptic([
+			20,
+			40,
+			20
+		]);
+		if (!renamingAccountId) return;
+		const villageIdToDelete = renamingAccountId;
+		cancelAllNotificationsForVillage(villageIdToDelete);
+		const targetIndex = accounts.findIndex((a) => a.id === villageIdToDelete);
+		const deletedName = targetIndex >= 0 ? accounts[targetIndex].name : "Village";
+		const remainingAccounts = accounts.filter((a) => a.id !== villageIdToDelete);
+		let nextAccountsList;
+		let nextActiveProfile;
+		if (remainingAccounts.length === 0) {
+			nextActiveProfile = {
+				id: "main",
+				name: "Main Account",
+				data: createDefaultSavedState()
+			};
+			nextAccountsList = [nextActiveProfile];
+		} else {
+			nextAccountsList = remainingAccounts;
+			if (villageIdToDelete === activeAccountId) nextActiveProfile = remainingAccounts[Math.min(Math.max(0, targetIndex - 1), remainingAccounts.length - 1)];
+			else nextActiveProfile = remainingAccounts.find((a) => a.id === activeAccountId) || remainingAccounts[0];
+		}
+		setAccounts(nextAccountsList);
+		setActiveAccountId(nextActiveProfile.id);
+		applySavedStateToActiveView(nextActiveProfile.data);
+		try {
+			localStorage.setItem(STORAGE_KEY, JSON.stringify(nextActiveProfile.data));
+			const multiPayload = {
+				activeAccountId: nextActiveProfile.id,
+				accounts: nextAccountsList
+			};
+			localStorage.setItem(ACCOUNTS_STORAGE_KEY, JSON.stringify(multiPayload));
+		} catch {}
+		setRenamingAccountId(null);
+		setRenameVillageInput("");
+		setConfirmDeleteVillage(false);
+		showToast("success", `Deleted "${deletedName}"`);
+	};
+	const handleOpenAddVillageModal = () => {
+		triggerHaptic(15);
+		setIsAddingNewAccount(true);
+		setNewVillageNameInput(`Village ${accounts.length + 1}`);
+		setJsonInputText("");
+		setIsImportModalOpen(true);
+	};
+	const handleCreateEmptyVillage = () => {
+		triggerHaptic(15);
+		const trimmedName = newVillageNameInput.trim() || `Village ${accounts.length + 1}`;
+		const newId = `village_${Date.now()}`;
+		const emptyState = createDefaultSavedState();
+		const newProfile = {
+			id: newId,
+			name: trimmedName,
+			data: emptyState
 		};
-		window.addEventListener("storage", handleStorage);
-		return () => {
-			window.removeEventListener("storage", handleStorage);
-		};
-	}, []);
+		const nextAccounts = [...accounts, newProfile];
+		setAccounts(nextAccounts);
+		setActiveAccountId(newId);
+		applySavedStateToActiveView(emptyState);
+		setIsImportModalOpen(false);
+		setIsAddingNewAccount(false);
+		setNewVillageNameInput("");
+		setJsonInputText("");
+		showToast("success", `Added ${trimmedName}!`);
+	};
+	const handleCategoryTabChange = (tab) => {
+		triggerHaptic(15);
+		setActiveTab(tab);
+	};
 	const setMode = (mode) => {
-		triggerHaptic();
+		triggerHaptic(15);
 		setCurrentMode(mode);
 	};
 	const handleBuilderCountChange = (nextCount) => {
 		const clamped = Math.min(7, Math.max(1, nextCount));
 		if (clamped !== numBuilders) {
-			triggerHaptic(8);
+			triggerHaptic(12);
 			setNumBuilders(clamped);
 		}
 	};
-	const handleBuilderTimeChange = (index, field, value) => {
-		const digits = value.replace(/\D/g, "");
-		if (digits === "") {
-			setBuilders((prev) => {
-				const next = [...prev];
-				next[index] = {
-					...next[index],
-					[field]: "",
-					s: 0
-				};
-				return next;
-			});
-			return;
-		}
+	const clampTimeFieldValue = (field, rawVal) => {
+		const digits = rawVal.replace(/\D/g, "");
+		if (digits === "") return "";
 		let num = parseInt(digits, 10);
 		if (field === "h" && num > 24) num = 24;
 		else if (field === "m" && num > 60) num = 60;
 		else if (field === "d" && num > 999) num = 999;
+		return String(num);
+	};
+	const handleBuilderTimeChange = (index, field, value) => {
+		const clamped = clampTimeFieldValue(field, value);
 		setBuilders((prev) => {
 			const next = [...prev];
 			next[index] = {
 				...next[index],
-				[field]: String(num),
+				[field]: clamped,
 				s: 0
 			};
 			return next;
 		});
 	};
 	const applyPresetToBuilder = (index, deltaDays, deltaHours) => {
-		triggerHaptic();
+		triggerHaptic(15);
 		setBuilders((prev) => {
 			const next = [...prev];
 			const current = next[index] || {
@@ -12113,38 +13286,204 @@ function App() {
 		setPotionsInput(String(num));
 	};
 	const adjustPotions = (delta) => {
-		triggerHaptic();
+		triggerHaptic(15);
 		const next = Math.min(999, Math.max(0, Math.max(0, parseInt(potionsInput, 10) || 0) + delta));
 		setPotionsInput(next === 0 ? "" : String(next));
 	};
+	const computeLabScheduleValues = (mainTimerVal, goblinTimerVal, potionCount) => {
+		const now = Date.now();
+		const mainRemSec = getTimerTotalSeconds(mainTimerVal);
+		const goblinRemSec = getTimerTotalSeconds(goblinTimerVal);
+		let nextMainTs = null;
+		let nextMainDate = "";
+		let mainSavedSec = 0;
+		if (mainRemSec > 0) {
+			const realElapsedSec = calc24xRealTimeSeconds(mainRemSec, potionCount);
+			nextMainTs = now + Math.round(realElapsedSec * 1e3);
+			nextMainDate = formatCompletionDate(nextMainTs);
+			mainSavedSec = Math.max(0, mainRemSec - realElapsedSec);
+		}
+		let nextGoblinTs = null;
+		let nextGoblinDate = "";
+		let goblinSavedSec = 0;
+		if (goblinRemSec > 0) {
+			const realElapsedSec = calc24xRealTimeSeconds(goblinRemSec, potionCount);
+			nextGoblinTs = now + Math.round(realElapsedSec * 1e3);
+			nextGoblinDate = formatCompletionDate(nextGoblinTs);
+			goblinSavedSec = Math.max(0, goblinRemSec - realElapsedSec);
+		}
+		const totalSavedSec = mainSavedSec + goblinSavedSec;
+		return {
+			nextMainTs,
+			nextMainDate,
+			nextGoblinTs,
+			nextGoblinDate,
+			nextLabSavedText: formatSavedSeconds(totalSavedSec)
+		};
+	};
+	const computeLabSchedule = (mainTimerVal, goblinTimerVal, potionCount, targetVillageId = activeAccountId, targetVillageName = getActiveVillageName(activeAccountId)) => {
+		const res = computeLabScheduleValues(mainTimerVal, goblinTimerVal, potionCount);
+		setTargetLabTimestamp(res.nextMainTs);
+		setLabFormattedDate(res.nextMainDate);
+		setTargetGoblinLabTimestamp(res.nextGoblinTs);
+		setGoblinLabFormattedDate(res.nextGoblinDate);
+		setLabSavedText(res.nextLabSavedText);
+		scheduleLabNotificationsForVillage(targetVillageId, targetVillageName, mainTimerVal, res.nextMainTs, goblinTimerVal, res.nextGoblinTs);
+		return res;
+	};
+	const calculateLabFinish = () => {
+		triggerHaptic(18);
+		computeLabSchedule(labTimer, goblinLabTimer, researchPotions);
+	};
+	const adjustResearchPotions = (delta) => {
+		triggerHaptic(15);
+		const nextCount = Math.min(99, Math.max(0, researchPotions + delta));
+		setResearchPotions(nextCount);
+		if (getTimerTotalSeconds(labTimer) > 0 || getTimerTotalSeconds(goblinLabTimer) > 0) computeLabSchedule(labTimer, goblinLabTimer, nextCount);
+	};
+	const handleLabTimeChange = (slot, field, value) => {
+		const clamped = clampTimeFieldValue(field, value);
+		if (slot === "main") {
+			const nextMain = {
+				...labTimer,
+				[field]: clamped,
+				s: 0
+			};
+			setLabTimer(nextMain);
+			computeLabSchedule(nextMain, goblinLabTimer, researchPotions);
+		} else {
+			const nextGoblin = {
+				...goblinLabTimer,
+				[field]: clamped,
+				s: 0
+			};
+			setGoblinLabTimer(nextGoblin);
+			computeLabSchedule(labTimer, nextGoblin, researchPotions);
+		}
+	};
+	const applyPresetToLab = (slot, deltaDays, deltaHours) => {
+		triggerHaptic(15);
+		const current = slot === "main" ? labTimer : goblinLabTimer;
+		const curD = Math.max(0, parseInt(current.d, 10) || 0);
+		const curH = Math.max(0, parseInt(current.h, 10) || 0);
+		const curM = Math.max(0, parseInt(current.m, 10) || 0);
+		const totalHours = curH + deltaHours;
+		const extraDaysFromHours = Math.floor(totalHours / 24);
+		const newH = totalHours % 24;
+		const newD = Math.min(999, curD + deltaDays + extraDaysFromHours);
+		const updated = {
+			...current,
+			d: newD > 0 ? String(newD) : current.d !== "" ? "0" : "",
+			h: newH > 0 ? String(newH) : deltaHours > 0 || current.h !== "" ? String(newH) : "",
+			m: curM > 0 ? String(curM) : current.m,
+			s: 0
+		};
+		if (slot === "main") {
+			setLabTimer(updated);
+			computeLabSchedule(updated, goblinLabTimer, researchPotions);
+		} else {
+			setGoblinLabTimer(updated);
+			computeLabSchedule(labTimer, updated, researchPotions);
+		}
+	};
+	const clearLabSlot = (slot) => {
+		triggerHaptic(15);
+		const empty = createEmptyTimer();
+		if (slot === "main") {
+			setLabTimer(empty);
+			computeLabSchedule(empty, goblinLabTimer, researchPotions);
+		} else {
+			setGoblinLabTimer(empty);
+			computeLabSchedule(labTimer, empty, researchPotions);
+		}
+	};
+	const computePetScheduleValues = (petTimerVal, potionCount) => {
+		const now = Date.now();
+		const petRemSec = getTimerTotalSeconds(petTimerVal);
+		if (petRemSec <= 0) return {
+			nextPetTs: null,
+			nextPetDate: "",
+			nextPetSavedText: ""
+		};
+		const realElapsedSec = calc24xRealTimeSeconds(petRemSec, potionCount);
+		const nextPetTs = now + Math.round(realElapsedSec * 1e3);
+		const savedSec = Math.max(0, petRemSec - realElapsedSec);
+		return {
+			nextPetTs,
+			nextPetDate: formatCompletionDate(nextPetTs),
+			nextPetSavedText: formatSavedSeconds(savedSec)
+		};
+	};
+	const computePetSchedule = (petTimerVal, potionCount, targetVillageId = activeAccountId, targetVillageName = getActiveVillageName(activeAccountId)) => {
+		const res = computePetScheduleValues(petTimerVal, potionCount);
+		setTargetPetTimestamp(res.nextPetTs);
+		setPetFormattedDate(res.nextPetDate);
+		setPetSavedText(res.nextPetSavedText);
+		schedulePetNotificationForVillage(targetVillageId, targetVillageName, petTimerVal, res.nextPetTs);
+		return res;
+	};
+	const calculatePetFinish = () => {
+		triggerHaptic(18);
+		computePetSchedule(petTimer, petPotions);
+	};
+	const adjustPetPotions = (delta) => {
+		triggerHaptic(15);
+		const nextCount = Math.min(99, Math.max(0, petPotions + delta));
+		setPetPotions(nextCount);
+		if (getTimerTotalSeconds(petTimer) > 0) computePetSchedule(petTimer, nextCount);
+	};
+	const handlePetTimeChange = (field, value) => {
+		const clamped = clampTimeFieldValue(field, value);
+		const nextPet = {
+			...petTimer,
+			[field]: clamped,
+			s: 0
+		};
+		setPetTimer(nextPet);
+		computePetSchedule(nextPet, petPotions);
+	};
+	const applyPresetToPet = (deltaDays, deltaHours) => {
+		triggerHaptic(15);
+		const curD = Math.max(0, parseInt(petTimer.d, 10) || 0);
+		const curH = Math.max(0, parseInt(petTimer.h, 10) || 0);
+		const curM = Math.max(0, parseInt(petTimer.m, 10) || 0);
+		const totalHours = curH + deltaHours;
+		const extraDaysFromHours = Math.floor(totalHours / 24);
+		const newH = totalHours % 24;
+		const newD = Math.min(999, curD + deltaDays + extraDaysFromHours);
+		const updated = {
+			...petTimer,
+			d: newD > 0 ? String(newD) : petTimer.d !== "" ? "0" : "",
+			h: newH > 0 ? String(newH) : deltaHours > 0 || petTimer.h !== "" ? String(newH) : "",
+			m: curM > 0 ? String(curM) : petTimer.m,
+			s: 0
+		};
+		setPetTimer(updated);
+		computePetSchedule(updated, petPotions);
+	};
+	const clearPetSlot = () => {
+		triggerHaptic(15);
+		const empty = createEmptyTimer();
+		setPetTimer(empty);
+		setTargetPetTimestamp(null);
+		setPetFormattedDate("");
+		setPetSavedText("");
+		cancelSlotNotification(activeAccountId, "pet_main");
+	};
 	const resetAllTimes = () => {
 		triggerHaptic(15);
-		setBuilders(Array.from({ length: 7 }, () => ({
-			d: "",
-			h: "",
-			m: "",
-			s: 0,
-			upgradeTitle: void 0,
-			upgradeLevel: void 0,
-			rawId: void 0
-		})));
+		setBuilders(createEmptyBuilders());
 		setLockedResults([]);
 		setSavedText("");
 		setShowResult(false);
+		scheduleBuilderNotificationsForVillage(activeAccountId, getActiveVillageName(activeAccountId), []);
 	};
 	const resetBuilderTime = (index) => {
-		triggerHaptic();
+		triggerHaptic(15);
+		cancelSlotNotification(activeAccountId, `builder_${index}`);
 		setBuilders((prev) => {
 			const next = [...prev];
-			next[index] = {
-				d: "",
-				h: "",
-				m: "",
-				s: 0,
-				upgradeTitle: void 0,
-				upgradeLevel: void 0,
-				rawId: void 0
-			};
+			next[index] = createEmptyTimer();
 			return next;
 		});
 		setLockedResults((prev) => {
@@ -12154,12 +13493,13 @@ function App() {
 		});
 	};
 	const unlockAndEditTimers = () => {
-		triggerHaptic();
+		triggerHaptic(15);
 		setLockedResults([]);
 		setSavedText("");
 		setShowResult(false);
+		scheduleBuilderNotificationsForVillage(activeAccountId, getActiveVillageName(activeAccountId), []);
 	};
-	const runCalculationWithData = (targetMode, targetNumBuilders, targetBuilders, targetPotionsStr) => {
+	const runCalculationWithData = (targetMode, targetNumBuilders, targetBuilders, targetPotionsStr, targetVillageId = activeAccountId, targetVillageName = getActiveVillageName(activeAccountId)) => {
 		const potions = Math.max(0, parseInt(targetPotionsStr, 10) || 0);
 		const activeBuildersCount = targetMode === "single" ? 1 : targetNumBuilders;
 		const calcTimestamp = Date.now();
@@ -12175,13 +13515,7 @@ function App() {
 			if (totalBuilderHours === 0) continue;
 			const realTimeHours = calcRealTime(totalBuilderHours, potions);
 			const targetTimestamp = calcTimestamp + Math.round(realTimeHours * 3600 * 1e3);
-			const formattedDate = new Date(targetTimestamp).toLocaleString("en-US", {
-				month: "short",
-				day: "numeric",
-				hour: "numeric",
-				minute: "2-digit",
-				hour12: true
-			});
+			const formattedDate = formatCompletionDate(targetTimestamp);
 			const isGoblin = targetMode === "multi" && i === 7;
 			const slotBadge = isGoblin ? "[GOBLIN]" : `[B${i}]`;
 			const defaultTitle = targetMode === "single" ? "Defense Upgrade" : isGoblin ? "Goblin Builder" : `Builder ${i} Upgrade`;
@@ -12198,7 +13532,16 @@ function App() {
 				formattedDate
 			});
 		}
-		if (computedResults.length === 0) return;
+		scheduleBuilderNotificationsForVillage(targetVillageId, targetVillageName, computedResults);
+		if (computedResults.length === 0) {
+			setLockedResults([]);
+			setSavedText("");
+			setShowResult(false);
+			return {
+				computedResults: [],
+				computedSavedText: ""
+			};
+		}
 		const totalSavedHoursAllBuilders = potions * 9 * computedResults.length;
 		const savedDays = Math.floor(totalSavedHoursAllBuilders / 24);
 		const savedHours = totalSavedHoursAllBuilders % 24;
@@ -12215,6 +13558,10 @@ function App() {
 		requestAnimationFrame(() => {
 			setShowResult(true);
 		});
+		return {
+			computedResults,
+			computedSavedText
+		};
 	};
 	const calculateTime = () => {
 		triggerHaptic(18);
@@ -12222,6 +13569,7 @@ function App() {
 	};
 	const handleImportVillageJson = () => {
 		triggerHaptic(15);
+		requestNotificationPermissions();
 		const trimmed = jsonInputText.trim();
 		if (!trimmed) {
 			showToast("error", "Invalid JSON format");
@@ -12238,76 +13586,103 @@ function App() {
 			showToast("error", "Invalid JSON format");
 			return;
 		}
-		const activeUpgrades = [
+		const activeBuilderUpgrades = [
 			...Array.isArray(parsedData.buildings) ? parsedData.buildings : [],
 			...Array.isArray(parsedData.traps) ? parsedData.traps : [],
 			...Array.isArray(parsedData.heroes) ? parsedData.heroes : []
 		].filter((item) => item && typeof item.timer === "number" && item.timer > 0);
-		if (activeUpgrades.length === 0) {
+		const activeLabUpgrades = [
+			...Array.isArray(parsedData.units) ? parsedData.units : [],
+			...Array.isArray(parsedData.spells) ? parsedData.spells : [],
+			...Array.isArray(parsedData.siege_machines) ? parsedData.siege_machines : []
+		].filter((item) => item && typeof item.timer === "number" && item.timer > 0);
+		const activePetUpgrades = (Array.isArray(parsedData.pets) ? parsedData.pets : []).filter((item) => item && typeof item.timer === "number" && item.timer > 0);
+		if (activeBuilderUpgrades.length === 0 && activeLabUpgrades.length === 0 && activePetUpgrades.length === 0) {
 			showToast("error", "No active Home Village upgrades found");
 			return;
 		}
-		const goblinItem = activeUpgrades.find((item) => item.extra === true);
-		const regularItems = activeUpgrades.filter((item) => item.extra !== true).slice(0, 6);
-		const nextBuilders = Array.from({ length: 7 }, () => ({
-			d: "",
-			h: "",
-			m: "",
-			s: 0,
-			upgradeTitle: void 0,
-			upgradeLevel: void 0,
-			rawId: void 0
-		}));
-		regularItems.forEach((item, idx) => {
-			const timer = Math.max(0, Math.floor(item.timer || 0));
-			const days = Math.floor(timer / 86400);
-			const hours = Math.floor(timer % 86400 / 3600);
-			const mins = Math.floor(timer % 3600 / 60);
-			const secs = timer % 60;
-			const itemData = item.data ?? item.id;
-			const rawIdStr = itemData !== void 0 && itemData !== null ? String(itemData) : void 0;
-			const upgradeName = itemData !== void 0 && (COC_NAMES[itemData] || COC_NAMES[Number(itemData)] || COC_NAMES[String(itemData)]) || "Defense Upgrade";
-			nextBuilders[idx] = {
-				d: String(days),
-				h: String(hours),
-				m: String(mins),
-				s: secs,
-				upgradeTitle: upgradeName,
-				upgradeLevel: typeof item.lvl === "number" ? item.lvl : void 0,
-				rawId: rawIdStr
-			};
+		const goblinBuilderItem = activeBuilderUpgrades.find((item) => item.extra === true);
+		const regularBuilderItems = activeBuilderUpgrades.filter((item) => item.extra !== true).slice(0, 6);
+		const nextBuilders = createEmptyBuilders();
+		regularBuilderItems.forEach((item, idx) => {
+			nextBuilders[idx] = convertRawItemToTimer(item, "Defense Upgrade");
 		});
-		if (goblinItem) {
-			const timer = Math.max(0, Math.floor(goblinItem.timer || 0));
-			const days = Math.floor(timer / 86400);
-			const hours = Math.floor(timer % 86400 / 3600);
-			const mins = Math.floor(timer % 3600 / 60);
-			const secs = timer % 60;
-			const goblinData = goblinItem.data ?? goblinItem.id;
-			const rawIdStr = goblinData !== void 0 && goblinData !== null ? String(goblinData) : void 0;
-			const upgradeName = goblinData !== void 0 && (COC_NAMES[goblinData] || COC_NAMES[Number(goblinData)] || COC_NAMES[String(goblinData)]) || "Defense Upgrade";
-			nextBuilders[6] = {
-				d: String(days),
-				h: String(hours),
-				m: String(mins),
-				s: secs,
-				upgradeTitle: upgradeName,
-				upgradeLevel: typeof goblinItem.lvl === "number" ? goblinItem.lvl : void 0,
-				rawId: rawIdStr
+		if (goblinBuilderItem) nextBuilders[6] = convertRawItemToTimer(goblinBuilderItem, "Defense Upgrade");
+		const totalLoadedBuilders = regularBuilderItems.length + (goblinBuilderItem ? 1 : 0);
+		const nextBuilderSliderCount = goblinBuilderItem ? 7 : Math.max(1, Math.min(6, regularBuilderItems.length || 2));
+		const standardLabItem = activeLabUpgrades.find((item) => item.extra !== true);
+		const goblinLabItem = activeLabUpgrades.find((item) => item.extra === true);
+		const nextLabTimer = standardLabItem ? convertRawItemToTimer(standardLabItem, "Troop / Spell Upgrade") : createEmptyTimer();
+		const nextGoblinLabTimer = goblinLabItem ? convertRawItemToTimer(goblinLabItem, "Goblin Researcher") : createEmptyTimer();
+		const activePetItem = activePetUpgrades[0];
+		const nextPetTimer = activePetItem ? convertRawItemToTimer(activePetItem, "Active Pet Upgrade") : createEmptyTimer();
+		const targetPotions = isAddingNewAccount ? "" : potionsInput;
+		const targetResPotions = isAddingNewAccount ? 1 : researchPotions;
+		const targetPetPotionsCount = isAddingNewAccount ? 1 : petPotions;
+		const extractedTag = typeof parsedData.tag === "string" && parsedData.tag.trim() ? parsedData.tag.trim() : void 0;
+		const newAccountName = newVillageNameInput.trim() || (extractedTag ? `Village ${extractedTag}` : `Village ${accounts.length + 1}`);
+		const newAccountId = `village_${Date.now()}`;
+		const targetVillageId = isAddingNewAccount ? newAccountId : activeAccountId;
+		const targetVillageName = isAddingNewAccount ? newAccountName : getActiveVillageName(activeAccountId);
+		const { computedResults, computedSavedText } = runCalculationWithData("multi", nextBuilderSliderCount, nextBuilders, targetPotions, targetVillageId, targetVillageName);
+		const labSched = computeLabSchedule(nextLabTimer, nextGoblinLabTimer, targetResPotions, targetVillageId, targetVillageName);
+		const petSched = computePetSchedule(nextPetTimer, targetPetPotionsCount, targetVillageId, targetVillageName);
+		setLabTimer(nextLabTimer);
+		setGoblinLabTimer(nextGoblinLabTimer);
+		setPetTimer(nextPetTimer);
+		if (isAddingNewAccount) {
+			const newProfile = {
+				id: newAccountId,
+				name: newAccountName,
+				tag: extractedTag,
+				data: {
+					...createDefaultSavedState(),
+					mode: "multi",
+					numBuilders: nextBuilderSliderCount,
+					builders: nextBuilders,
+					potions: targetPotions,
+					lockedResults: computedResults,
+					lockedSavedText: computedSavedText,
+					researchPotions: targetResPotions,
+					labTimer: nextLabTimer,
+					goblinLabTimer: nextGoblinLabTimer,
+					targetLabTimestamp: labSched.nextMainTs,
+					labFormattedDate: labSched.nextMainDate,
+					labSavedText: labSched.nextLabSavedText,
+					targetGoblinLabTimestamp: labSched.nextGoblinTs,
+					goblinLabFormattedDate: labSched.nextGoblinDate,
+					petPotions: targetPetPotionsCount,
+					petTimer: nextPetTimer,
+					targetPetTimestamp: petSched.nextPetTs,
+					petFormattedDate: petSched.nextPetDate,
+					petSavedText: petSched.nextPetSavedText
+				}
 			};
+			setAccounts((prev) => [...prev, newProfile]);
+			setActiveAccountId(newAccountId);
+			setPotionsInput(targetPotions);
+			setResearchPotions(targetResPotions);
+			setPetPotions(targetPetPotionsCount);
 		}
-		const totalLoadedCount = regularItems.length + (goblinItem ? 1 : 0);
-		const nextBuilderSliderCount = goblinItem ? 7 : Math.max(1, Math.min(6, regularItems.length));
 		setCurrentMode("multi");
 		setNumBuilders(nextBuilderSliderCount);
 		setBuilders(nextBuilders);
+		if (totalLoadedBuilders > 0) setActiveTab("builders");
+		else if (activeLabUpgrades.length > 0) setActiveTab("laboratory");
+		else if (activePetUpgrades.length > 0) setActiveTab("pethouse");
 		setIsImportModalOpen(false);
+		setIsAddingNewAccount(false);
+		setNewVillageNameInput("");
 		setJsonInputText("");
-		runCalculationWithData("multi", nextBuilderSliderCount, nextBuilders, potionsInput);
-		showToast("success", `Loaded ${totalLoadedCount} active builders!`);
+		const summaryParts = [];
+		if (totalLoadedBuilders > 0) summaryParts.push(`${totalLoadedBuilders} builders`);
+		if (activeLabUpgrades.length > 0) summaryParts.push(`${activeLabUpgrades.length} lab`);
+		if (activePetUpgrades.length > 0) summaryParts.push(`${activePetUpgrades.length} pet`);
+		showToast("success", `Loaded ${summaryParts.join(", ")}!`);
 	};
 	const activeBuildersToRender = currentMode === "single" ? 1 : numBuilders;
 	const soonestTargetTimestamp = lockedResults.length > 0 ? Math.min(...lockedResults.map((r) => r.targetTimestamp)) : null;
+	const hasPetTimerInput = getTimerTotalSeconds(petTimer) > 0;
 	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 		className: "min-h-dvh w-full flex flex-col items-center justify-center p-3 sm:p-6 overflow-y-auto overflow-x-hidden",
 		children: [
@@ -12316,23 +13691,30 @@ function App() {
 				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: toast.type === "success" ? "✅" : "⚠️" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: toast.text })]
 			}),
 			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-				className: "glass-card w-full max-w-md rounded-3xl p-5 sm:p-8 relative overflow-hidden my-auto",
+				className: "glass-card w-full max-w-md rounded-3xl p-5 sm:p-7 relative overflow-hidden my-auto",
 				children: [
 					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "absolute -top-10 -right-10 w-32 h-32 bg-pink-500 rounded-full mix-blend-screen filter blur-[50px] opacity-40 pointer-events-none" }),
 					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "absolute -bottom-10 -left-10 w-32 h-32 bg-yellow-500 rounded-full mix-blend-screen filter blur-[50px] opacity-30 pointer-events-none" }),
 					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-						className: "text-center mb-5 relative z-10",
+						className: "text-center mb-4 relative z-10",
 						children: [
 							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("h1", {
-								className: "text-2xl sm:text-3xl font-bold tracking-wide",
-								children: ["Builder ", /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-									className: "text-elixir",
-									children: "Potion"
-								})]
+								className: "text-2xl sm:text-3xl font-extrabold tracking-wide",
+								children: [
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+										className: "text-white",
+										children: "Clash"
+									}),
+									" ",
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+										className: "text-planner-gradient",
+										children: "Planner"
+									})
+								]
 							}),
 							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
-								className: "text-gray-300 text-sm mt-1 uppercase tracking-widest text-gold text-xs font-semibold",
-								children: "Hammer Jam Calculator"
+								className: "tagline-companion mt-1 uppercase",
+								children: "UPGRADE COMPANION"
 							}),
 							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 								className: "mt-3.5 flex justify-center",
@@ -12340,6 +13722,7 @@ function App() {
 									type: "button",
 									onClick: () => {
 										triggerHaptic(15);
+										setIsAddingNewAccount(false);
 										setIsImportModalOpen(true);
 									},
 									className: "tactile inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-extrabold text-[#f8fafc] bg-gradient-to-r from-amber-500/20 via-pink-500/20 to-purple-500/20 hover:from-amber-500/30 hover:to-purple-500/30 border border-amber-400/50 shadow-[0_0_15px_rgba(251,191,36,0.25)] cursor-pointer",
@@ -12348,432 +13731,1247 @@ function App() {
 							})
 						]
 					}),
-					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-						className: "flex bg-black/40 rounded-xl p-1 mb-6 border border-white/10 relative z-10",
-						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-							id: "btn-mode-single",
-							type: "button",
-							onClick: () => setMode("single"),
-							className: `tactile flex-1 py-2.5 text-sm font-bold rounded-lg transition-all cursor-pointer ${currentMode === "single" ? "bg-white/20 text-white shadow-sm" : "text-gray-300 hover:text-white"}`,
-							children: "Single Builder"
-						}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-							id: "btn-mode-multi",
-							type: "button",
-							onClick: () => setMode("multi"),
-							className: `tactile flex-1 py-2.5 text-sm font-bold rounded-lg transition-all cursor-pointer ${currentMode === "multi" ? "bg-white/20 text-white shadow-sm" : "text-gray-300 hover:text-white"}`,
-							children: "All Builders"
-						})]
+					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+						className: "bg-black/45 border border-white/10 rounded-2xl p-2 mb-3.5 relative z-10",
+						children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "account-bar-scroll flex items-center gap-2 overflow-x-auto",
+							children: [accounts.map((account) => {
+								const isActive = account.id === activeAccountId;
+								return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+									onClick: () => handleAccountChipClick(account),
+									role: "button",
+									tabIndex: 0,
+									onKeyDown: (e) => {
+										if (e.key === "Enter" || e.key === " ") {
+											e.preventDefault();
+											handleAccountChipClick(account);
+										}
+									},
+									title: isActive ? "Tap to edit or delete village profile" : `Switch to ${account.name}`,
+									className: `tactile shrink-0 px-3 py-1.5 rounded-xl text-xs font-extrabold flex items-center gap-1.5 transition-all cursor-pointer select-none ${isActive ? "account-chip-active" : "account-chip-inactive"}`,
+									children: [
+										isActive && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+											className: "w-2 h-2 rounded-full bg-[#22c55e] shadow-[0_0_6px_#22c55e] inline-block",
+											"aria-hidden": "true"
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: account.name }),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+											type: "button",
+											onClick: (e) => handleOpenRenameModal(account, e),
+											"aria-label": `Edit ${account.name}`,
+											title: `Edit ${account.name}`,
+											className: `ml-0.5 px-1 py-0.5 rounded hover:bg-white/15 transition text-[10px] leading-none cursor-pointer ${isActive ? "text-[#fbbf24] opacity-90" : "text-slate-400 opacity-70"}`,
+											children: "✏️"
+										})
+									]
+								}, account.id);
+							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+								type: "button",
+								onClick: handleOpenAddVillageModal,
+								className: "tactile account-chip-add shrink-0 px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1 transition-all cursor-pointer",
+								children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "+ Add Village" })
+							})]
+						})
 					}),
 					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-						className: "space-y-6 relative z-10",
+						className: "grid grid-cols-3 gap-1.5 bg-black/50 p-1.5 rounded-2xl border border-white/10 mb-5 relative z-10",
+						children: [
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+								type: "button",
+								onClick: () => handleCategoryTabChange("builders"),
+								className: `tactile py-2.5 px-1.5 rounded-xl text-[11px] sm:text-xs font-extrabold transition-all flex items-center justify-center gap-1 cursor-pointer border ${activeTab === "builders" ? "seg-tab-builders-active" : "border-transparent text-slate-400 hover:text-slate-200"}`,
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "🔨" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+									className: "truncate",
+									children: "Builders (6+1)"
+								})]
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+								type: "button",
+								onClick: () => handleCategoryTabChange("laboratory"),
+								className: `tactile py-2.5 px-1.5 rounded-xl text-[11px] sm:text-xs font-extrabold transition-all flex items-center justify-center gap-1 cursor-pointer border ${activeTab === "laboratory" ? "seg-tab-lab-active" : "border-transparent text-slate-400 hover:text-slate-200"}`,
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "⚗️" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+									className: "truncate",
+									children: "Laboratory"
+								})]
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+								type: "button",
+								onClick: () => handleCategoryTabChange("pethouse"),
+								className: `tactile py-2.5 px-1.5 rounded-xl text-[11px] sm:text-xs font-extrabold transition-all flex items-center justify-center gap-1 cursor-pointer border ${activeTab === "pethouse" ? "seg-tab-pet-active" : "border-transparent text-slate-400 hover:text-slate-200"}`,
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "🐾" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+									className: "truncate",
+									children: "Pet House"
+								})]
+							})
+						]
+					}),
+					activeTab === "builders" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						className: "tab-panel-fade relative z-10",
 						children: [
 							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-								id: "multi-builders-config",
-								className: `${currentMode === "single" ? "hidden" : ""} bg-black/30 p-4 rounded-2xl border border-white/10`,
+								className: "flex bg-black/40 rounded-xl p-1 mb-6 border border-white/10",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+									id: "btn-mode-single",
+									type: "button",
+									onClick: () => setMode("single"),
+									className: `tactile flex-1 py-2.5 text-sm font-bold rounded-lg transition-all cursor-pointer ${currentMode === "single" ? "bg-white/20 text-white shadow-sm" : "text-gray-300 hover:text-white"}`,
+									children: "Single Builder"
+								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+									id: "btn-mode-multi",
+									type: "button",
+									onClick: () => setMode("multi"),
+									className: `tactile flex-1 py-2.5 text-sm font-bold rounded-lg transition-all cursor-pointer ${currentMode === "multi" ? "bg-white/20 text-white shadow-sm" : "text-gray-300 hover:text-white"}`,
+									children: "All Builders"
+								})]
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "space-y-6",
 								children: [
 									/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-										className: "flex justify-between items-center mb-3",
-										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", {
-											className: "text-base text-[#f8fafc] font-bold",
-											children: "Active Builders"
-										}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-											className: "flex items-center gap-2",
-											children: [
-												/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-													type: "button",
-													onClick: () => handleBuilderCountChange(numBuilders - 1),
-													className: "tactile w-7 h-7 rounded-lg bg-white/10 hover:bg-white/20 text-white font-bold flex items-center justify-center cursor-pointer border border-white/10",
-													"aria-label": "Decrease builders",
-													children: "−"
-												}),
-												/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-													className: `font-extrabold bg-black/50 px-3 py-1 rounded-lg shadow-inner border ${numBuilders === 7 ? "text-[#22c55e] border-emerald-500/40" : "text-[#fbbf24] border-amber-400/20"}`,
-													children: [
-														/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-															id: "builders-count-label",
-															children: numBuilders
-														}),
-														" ",
-														numBuilders === 7 ? "👺" : "👷"
-													]
-												}),
-												/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-													type: "button",
-													onClick: () => handleBuilderCountChange(numBuilders + 1),
-													className: "tactile w-7 h-7 rounded-lg bg-white/10 hover:bg-white/20 text-white font-bold flex items-center justify-center cursor-pointer border border-white/10",
-													"aria-label": "Increase builders",
-													children: "+"
-												})
-											]
-										})]
-									}),
-									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-										type: "range",
-										id: "input-builders",
-										min: "1",
-										max: "7",
-										value: numBuilders,
-										onChange: (e) => handleBuilderCountChange(parseInt(e.target.value, 10)),
-										className: "w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-[#EC4899]"
-									}),
-									/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-										className: "flex justify-between text-[11px] font-semibold text-gray-300 mt-2 px-0.5",
+										id: "multi-builders-config",
+										className: `${currentMode === "single" ? "hidden" : ""} bg-black/30 p-4 rounded-2xl border border-white/10`,
 										children: [
-											/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "1 Builder" }),
-											/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "6 Builders" }),
-											/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-												className: numBuilders === 7 ? "text-[#22c55e] font-bold" : "text-emerald-400/80",
-												children: "7: Goblin 👺"
+											/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+												className: "flex justify-between items-center mb-3",
+												children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", {
+													className: "text-base text-[#f8fafc] font-bold",
+													children: "Active Builders"
+												}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+													className: "flex items-center gap-2",
+													children: [
+														/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+															type: "button",
+															onClick: () => handleBuilderCountChange(numBuilders - 1),
+															className: "tactile w-7 h-7 rounded-lg bg-white/10 hover:bg-white/20 text-white font-bold flex items-center justify-center cursor-pointer border border-white/10",
+															"aria-label": "Decrease builders",
+															children: "−"
+														}),
+														/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+															className: `font-extrabold bg-black/50 px-3 py-1 rounded-lg shadow-inner border ${numBuilders === 7 ? "text-[#22c55e] border-emerald-500/40" : "text-[#fbbf24] border-amber-400/20"}`,
+															children: [
+																/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+																	id: "builders-count-label",
+																	children: numBuilders
+																}),
+																" ",
+																numBuilders === 7 ? "👺" : "👷"
+															]
+														}),
+														/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+															type: "button",
+															onClick: () => handleBuilderCountChange(numBuilders + 1),
+															className: "tactile w-7 h-7 rounded-lg bg-white/10 hover:bg-white/20 text-white font-bold flex items-center justify-center cursor-pointer border border-white/10",
+															"aria-label": "Increase builders",
+															children: "+"
+														})
+													]
+												})]
+											}),
+											/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+												type: "range",
+												id: "input-builders",
+												min: "1",
+												max: "7",
+												value: numBuilders,
+												onChange: (e) => handleBuilderCountChange(parseInt(e.target.value, 10)),
+												className: "w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-[#EC4899]"
+											}),
+											/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+												className: "flex justify-between text-[11px] font-semibold text-gray-300 mt-2 px-0.5",
+												children: [
+													/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "1 Builder" }),
+													/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "6 Builders" }),
+													/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+														className: numBuilders === 7 ? "text-[#22c55e] font-bold" : "text-emerald-400/80",
+														children: "7: Goblin 👺"
+													})
+												]
 											})
 										]
+									}),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+										id: "time-inputs-container",
+										className: "space-y-4",
+										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+											className: "flex items-center justify-between",
+											children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+												className: "text-xs uppercase tracking-wider text-[#fbbf24] font-extrabold",
+												children: "Upgrade Timers"
+											}), builders.slice(0, activeBuildersToRender).some((b) => b.d || b.h || b.m) && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+												type: "button",
+												onClick: resetAllTimes,
+												className: "tactile text-xs font-bold text-elixir hover:text-pink-300 transition flex items-center gap-1 cursor-pointer bg-pink-500/15 hover:bg-pink-500/25 px-2.5 py-1 rounded-lg border border-pink-500/30",
+												title: "Reset all days, hours, and minutes",
+												children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("svg", {
+													className: "w-3.5 h-3.5",
+													fill: "none",
+													stroke: "currentColor",
+													viewBox: "0 0 24 24",
+													children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", {
+														strokeLinecap: "round",
+														strokeLinejoin: "round",
+														strokeWidth: "2",
+														d: "M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+													})
+												}), "Reset All"]
+											})]
+										}), Array.from({ length: activeBuildersToRender }, (_, idx) => {
+											const i = idx + 1;
+											const isGoblin = currentMode === "multi" && i === 7;
+											const builderVal = builders[idx] || {
+												d: "",
+												h: "",
+												m: ""
+											};
+											const isHero = !isGoblin && !!builderVal.rawId?.startsWith("28");
+											const slotBadgeText = isGoblin ? "[GOBLIN]" : `[B${i}]`;
+											const defaultTitle = currentMode === "single" ? "Remaining Time" : isGoblin ? "Goblin Builder" : `Builder ${i}`;
+											const displayTitle = builderVal.upgradeTitle || defaultTitle;
+											const accentClass = isGoblin ? "goblin-card accent-goblin" : isHero ? "builder-card accent-hero" : "builder-card accent-gold";
+											const badgeClass = isGoblin ? "slot-badge-goblin" : isHero ? "slot-badge-hero" : "slot-badge-regular";
+											const hasThisBuilderTime = !!(builderVal.d || builderVal.h || builderVal.m || builderVal.upgradeTitle);
+											return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+												className: `rounded-2xl p-4 ${accentClass}`,
+												children: [
+													/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+														className: "builder-header-sep flex flex-wrap justify-between items-center gap-2",
+														children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+															className: "flex flex-wrap items-center gap-2",
+															children: [
+																/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+																	className: badgeClass,
+																	children: slotBadgeText
+																}),
+																/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+																	className: "upgrade-title",
+																	children: displayTitle
+																}),
+																typeof builderVal.upgradeLevel === "number" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+																	className: isGoblin ? "lvl-chip-goblin" : "lvl-chip",
+																	children: ["LVL ", builderVal.upgradeLevel]
+																})
+															]
+														}), hasThisBuilderTime && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+															type: "button",
+															onClick: () => resetBuilderTime(idx),
+															className: "tactile text-xs font-bold text-gray-200 hover:text-elixir transition flex items-center gap-1 px-2 py-0.5 rounded-md bg-white/10 hover:bg-white/15 cursor-pointer",
+															title: "Clear this builder's time",
+															children: "✕ Clear"
+														})]
+													}),
+													/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+														className: "grid grid-cols-3 gap-3",
+														children: [
+															/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+																className: "flex flex-col",
+																children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+																	type: "number",
+																	id: `input-d-${i}`,
+																	inputMode: "numeric",
+																	value: builderVal.d,
+																	onChange: (e) => handleBuilderTimeChange(idx, "d", e.target.value),
+																	placeholder: "0",
+																	min: "0",
+																	max: "999",
+																	className: `glass-input ${isGoblin ? "goblin-input" : ""} w-full rounded-xl py-3 px-2 text-center text-xl font-bold placeholder-gray-500`
+																}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+																	className: "text-xs font-semibold text-gray-200 text-center mt-1",
+																	children: "Days"
+																})]
+															}),
+															/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+																className: "flex flex-col",
+																children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+																	type: "number",
+																	id: `input-h-${i}`,
+																	inputMode: "numeric",
+																	value: builderVal.h,
+																	onChange: (e) => handleBuilderTimeChange(idx, "h", e.target.value),
+																	placeholder: "0",
+																	min: "0",
+																	max: "24",
+																	className: `glass-input ${isGoblin ? "goblin-input" : ""} w-full rounded-xl py-3 px-2 text-center text-xl font-bold placeholder-gray-500`
+																}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+																	className: "text-xs font-semibold text-gray-200 text-center mt-1",
+																	children: "Hours"
+																})]
+															}),
+															/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+																className: "flex flex-col",
+																children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+																	type: "number",
+																	id: `input-m-${i}`,
+																	inputMode: "numeric",
+																	value: builderVal.m,
+																	onChange: (e) => handleBuilderTimeChange(idx, "m", e.target.value),
+																	placeholder: "0",
+																	min: "0",
+																	max: "60",
+																	className: `glass-input ${isGoblin ? "goblin-input" : ""} w-full rounded-xl py-3 px-2 text-center text-xl font-bold placeholder-gray-500`
+																}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+																	className: "text-xs font-semibold text-gray-200 text-center mt-1",
+																	children: "Mins"
+																})]
+															})
+														]
+													}),
+													/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+														className: "flex flex-wrap items-center gap-1.5 mt-3 pt-2.5 border-t border-white/10",
+														children: [[
+															{
+																label: "+6h",
+																d: 0,
+																h: 6
+															},
+															{
+																label: "+12h",
+																d: 0,
+																h: 12
+															},
+															{
+																label: "+1d",
+																d: 1,
+																h: 0
+															},
+															{
+																label: "+3d",
+																d: 3,
+																h: 0
+															},
+															{
+																label: "+5d",
+																d: 5,
+																h: 0
+															},
+															{
+																label: "+7d",
+																d: 7,
+																h: 0
+															}
+														].map((preset) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+															type: "button",
+															onClick: () => applyPresetToBuilder(idx, preset.d, preset.h),
+															className: `tactile text-xs font-bold px-2.5 py-1 rounded-lg border cursor-pointer ${isGoblin ? "bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-200 border-emerald-500/30" : "bg-white/10 hover:bg-white/20 text-[#f8fafc] border-white/15"}`,
+															children: preset.label
+														}, preset.label)), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+															type: "button",
+															onClick: () => resetBuilderTime(idx),
+															className: "tactile text-xs font-bold px-2.5 py-1 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 ml-auto cursor-pointer",
+															children: "Clear"
+														})]
+													})
+												]
+											}, i);
+										})]
+									}),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+										className: "builder-card accent-gold rounded-2xl p-4",
+										children: [
+											/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
+												className: "block text-base text-[#f8fafc] mb-2.5 font-extrabold flex justify-between items-center",
+												children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+													className: "flex items-center gap-2",
+													children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "🧪 Builder Potions Used" })
+												}), potionsInput && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+													type: "button",
+													onClick: () => {
+														triggerHaptic(15);
+														setPotionsInput("");
+													},
+													className: "tactile text-xs font-bold text-gray-300 hover:text-elixir transition cursor-pointer bg-white/10 px-2 py-0.5 rounded-md",
+													children: "Clear"
+												})]
+											}),
+											/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+												className: "flex items-center gap-2.5",
+												children: [
+													/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+														type: "button",
+														onClick: () => adjustPotions(-1),
+														className: "tactile glass-input w-12 h-12 rounded-xl text-xl font-extrabold text-white hover:bg-white/15 flex items-center justify-center cursor-pointer",
+														"aria-label": "Decrease potions",
+														children: "−"
+													}),
+													/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+														className: "relative flex-1",
+														children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+															type: "number",
+															id: "input-potions",
+															inputMode: "numeric",
+															value: potionsInput,
+															onChange: (e) => handlePotionsChange(e.target.value),
+															placeholder: "0",
+															min: "0",
+															max: "999",
+															className: "glass-input w-full rounded-xl py-3 px-3 text-center text-xl font-extrabold placeholder-gray-500"
+														})
+													}),
+													/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+														type: "button",
+														onClick: () => adjustPotions(1),
+														className: "tactile glass-input w-12 h-12 rounded-xl text-xl font-extrabold text-[#fbbf24] hover:bg-white/15 flex items-center justify-center cursor-pointer",
+														"aria-label": "Increase potions",
+														children: "+"
+													})
+												]
+											}),
+											/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+												className: "mt-3 flex justify-center",
+												children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+													className: "builder-speed-pill",
+													children: "10x Speed Boost (Saves 9h per potion)"
+												})
+											})
+										]
+									}),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+										className: "flex gap-2.5 mt-4",
+										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+											type: "button",
+											onClick: calculateTime,
+											className: "btn-calculate tactile flex-1 text-white font-bold text-lg rounded-xl py-4 tracking-wide shadow-lg cursor-pointer",
+											children: "Calculate Finish Time"
+										}), (builders.slice(0, activeBuildersToRender).some((b) => b.d || b.h || b.m) || lockedResults.length > 0) && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+											type: "button",
+											onClick: resetAllTimes,
+											className: "tactile glass-input hover:border-pink-500/50 hover:bg-pink-500/10 text-gray-200 hover:text-white px-4 rounded-xl flex flex-col items-center justify-center gap-0.5 transition cursor-pointer",
+											title: "Reset all days, hours, and minutes",
+											children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("svg", {
+												className: "w-5 h-5 text-gray-200",
+												fill: "none",
+												stroke: "currentColor",
+												viewBox: "0 0 24 24",
+												children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", {
+													strokeLinecap: "round",
+													strokeLinejoin: "round",
+													strokeWidth: "2",
+													d: "M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+												})
+											}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+												className: "text-[10px] font-bold uppercase tracking-wider text-gray-200",
+												children: "Reset"
+											})]
+										})]
 									})
 								]
 							}),
 							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-								id: "time-inputs-container",
-								className: "space-y-4",
-								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-									className: "flex items-center justify-between",
-									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-										className: "text-xs uppercase tracking-wider text-[#fbbf24] font-extrabold",
-										children: "Upgrade Timers"
-									}), builders.slice(0, activeBuildersToRender).some((b) => b.d || b.h || b.m) && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
-										type: "button",
-										onClick: resetAllTimes,
-										className: "tactile text-xs font-bold text-elixir hover:text-pink-300 transition flex items-center gap-1 cursor-pointer bg-pink-500/15 hover:bg-pink-500/25 px-2.5 py-1 rounded-lg border border-pink-500/30",
-										title: "Reset all days, hours, and minutes",
-										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("svg", {
-											className: "w-3.5 h-3.5",
-											fill: "none",
-											stroke: "currentColor",
-											viewBox: "0 0 24 24",
-											children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", {
-												strokeLinecap: "round",
-												strokeLinejoin: "round",
-												strokeWidth: "2",
-												d: "M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-											})
-										}), "Reset All"]
-									})]
-								}), Array.from({ length: activeBuildersToRender }, (_, idx) => {
-									const i = idx + 1;
-									const isGoblin = currentMode === "multi" && i === 7;
-									const builderVal = builders[idx] || {
-										d: "",
-										h: "",
-										m: ""
-									};
-									const isHero = !isGoblin && !!builderVal.rawId?.startsWith("28");
-									const slotBadgeText = isGoblin ? "[GOBLIN]" : `[B${i}]`;
-									const defaultTitle = currentMode === "single" ? "Remaining Time" : isGoblin ? "Goblin Builder" : `Builder ${i}`;
-									const displayTitle = builderVal.upgradeTitle || defaultTitle;
-									const accentClass = isGoblin ? "goblin-card accent-goblin" : isHero ? "builder-card accent-hero" : "builder-card accent-gold";
-									const badgeClass = isGoblin ? "slot-badge-goblin" : isHero ? "slot-badge-hero" : "slot-badge-regular";
-									const hasThisBuilderTime = !!(builderVal.d || builderVal.h || builderVal.m || builderVal.upgradeTitle);
-									return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-										className: `rounded-2xl p-4 ${accentClass}`,
-										children: [
-											/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-												className: "builder-header-sep flex flex-wrap justify-between items-center gap-2",
-												children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-													className: "flex flex-wrap items-center gap-2",
-													children: [
-														/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-															className: badgeClass,
-															children: slotBadgeText
-														}),
-														/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-															className: "upgrade-title",
-															children: displayTitle
-														}),
-														typeof builderVal.upgradeLevel === "number" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
-															className: isGoblin ? "lvl-chip-goblin" : "lvl-chip",
-															children: ["LVL ", builderVal.upgradeLevel]
-														})
-													]
-												}), hasThisBuilderTime && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-													type: "button",
-													onClick: () => resetBuilderTime(idx),
-													className: "tactile text-xs font-bold text-gray-200 hover:text-elixir transition flex items-center gap-1 px-2 py-0.5 rounded-md bg-white/10 hover:bg-white/15 cursor-pointer",
-													title: "Clear this builder's time",
-													children: "✕ Clear"
-												})]
-											}),
-											/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-												className: "grid grid-cols-3 gap-3",
+								id: "results-container",
+								className: `${showResult && lockedResults.length > 0 ? "show-result" : "hidden-result"} mt-8 pt-6 border-t border-white/15`,
+								children: [
+									/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+										className: "flex items-center justify-between mb-3",
+										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+											className: "flex items-center gap-1.5",
+											children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "h-2 w-2 rounded-full bg-[#22c55e] animate-pulse" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+												className: "text-xs font-extrabold uppercase tracking-wider text-[#f8fafc]",
+												children: "Locked Finish Schedule"
+											})]
+										}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+											type: "button",
+											onClick: unlockAndEditTimers,
+											className: "tactile text-xs font-bold text-[#fbbf24] hover:text-amber-300 bg-amber-500/15 hover:bg-amber-500/25 border border-amber-400/30 px-2.5 py-1 rounded-lg cursor-pointer",
+											children: "Reset / Edit Timers"
+										})]
+									}),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+										id: "results-content",
+										className: "space-y-3",
+										children: lockedResults.map((item, idx) => {
+											const isFinishingNext = lockedResults.length > 1 && soonestTargetTimestamp !== null && item.targetTimestamp === soonestTargetTimestamp;
+											const isHero = !item.isGoblin && !!item.rawId?.startsWith("28");
+											const cardAccentClass = item.isGoblin ? "goblin-card accent-goblin" : isHero ? "bg-black/40 border-white/10 accent-hero" : "bg-black/40 border-white/10 accent-gold";
+											const badgeClass = item.isGoblin ? "slot-badge-goblin" : isHero ? "slot-badge-hero" : "slot-badge-regular";
+											return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+												className: `rounded-2xl p-4 border flex flex-col ${cardAccentClass}`,
 												children: [
 													/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-														className: "flex flex-col",
-														children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-															type: "number",
-															id: `input-d-${i}`,
-															inputMode: "numeric",
-															value: builderVal.d,
-															onChange: (e) => handleBuilderTimeChange(idx, "d", e.target.value),
-															placeholder: "0",
-															min: "0",
-															max: "999",
-															className: `glass-input ${isGoblin ? "goblin-input" : ""} w-full rounded-xl py-3 px-2 text-center text-xl font-bold placeholder-gray-500`
-														}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-															className: "text-xs font-semibold text-gray-200 text-center mt-1",
-															children: "Days"
+														className: "builder-header-sep flex flex-wrap items-center justify-between gap-2",
+														children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+															className: "flex flex-wrap items-center gap-2",
+															children: [
+																/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+																	className: badgeClass,
+																	children: item.slotBadge
+																}),
+																/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+																	className: "upgrade-title",
+																	children: item.upgradeTitle
+																}),
+																typeof item.upgradeLevel === "number" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+																	className: item.isGoblin ? "lvl-chip-goblin" : "lvl-chip",
+																	children: ["LVL ", item.upgradeLevel]
+																})
+															]
+														}), isFinishingNext && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+															className: "text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-md bg-amber-500/20 text-[#fbbf24] border border-amber-400/40",
+															children: "NEXT FREE"
 														})]
 													}),
 													/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-														className: "flex flex-col",
-														children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-															type: "number",
-															id: `input-h-${i}`,
-															inputMode: "numeric",
-															value: builderVal.h,
-															onChange: (e) => handleBuilderTimeChange(idx, "h", e.target.value),
-															placeholder: "0",
-															min: "0",
-															max: "24",
-															className: `glass-input ${isGoblin ? "goblin-input" : ""} w-full rounded-xl py-3 px-2 text-center text-xl font-bold placeholder-gray-500`
+														className: "flex items-baseline gap-2 mb-3",
+														children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+															className: "text-[10px] uppercase tracking-wider text-gray-300 font-bold",
+															children: "Completes On:"
 														}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-															className: "text-xs font-semibold text-gray-200 text-center mt-1",
-															children: "Hours"
+															className: "text-base font-extrabold text-gold",
+															children: item.formattedDate
 														})]
 													}),
-													/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-														className: "flex flex-col",
-														children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-															type: "number",
-															id: `input-m-${i}`,
-															inputMode: "numeric",
-															value: builderVal.m,
-															onChange: (e) => handleBuilderTimeChange(idx, "m", e.target.value),
-															placeholder: "0",
-															min: "0",
-															max: "60",
-															className: `glass-input ${isGoblin ? "goblin-input" : ""} w-full rounded-xl py-3 px-2 text-center text-xl font-bold placeholder-gray-500`
-														}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-															className: "text-xs font-semibold text-gray-200 text-center mt-1",
-															children: "Mins"
-														})]
+													/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+														className: "pt-2.5 border-t border-white/10",
+														children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(LiveHudTicker, { targetTimestamp: item.targetTimestamp })
 													})
 												]
-											}),
-											/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-												className: "flex flex-wrap items-center gap-1.5 mt-3 pt-2.5 border-t border-white/10",
-												children: [[
-													{
-														label: "+6h",
-														d: 0,
-														h: 6
-													},
-													{
-														label: "+12h",
-														d: 0,
-														h: 12
-													},
-													{
-														label: "+1d",
-														d: 1,
-														h: 0
-													},
-													{
-														label: "+3d",
-														d: 3,
-														h: 0
-													},
-													{
-														label: "+5d",
-														d: 5,
-														h: 0
-													},
-													{
-														label: "+7d",
-														d: 7,
-														h: 0
-													}
-												].map((preset) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-													type: "button",
-													onClick: () => applyPresetToBuilder(idx, preset.d, preset.h),
-													className: `tactile text-xs font-bold px-2.5 py-1 rounded-lg border cursor-pointer ${isGoblin ? "bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-200 border-emerald-500/30" : "bg-white/10 hover:bg-white/20 text-[#f8fafc] border-white/15"}`,
-													children: preset.label
-												}, preset.label)), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-													type: "button",
-													onClick: () => resetBuilderTime(idx),
-													className: "tactile text-xs font-bold px-2.5 py-1 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 ml-auto cursor-pointer",
-													children: "Clear"
-												})]
-											})
-										]
-									}, i);
-								})]
-							}),
+											}, `${item.builderIndex}-${item.targetTimestamp}-${idx}`);
+										})
+									}),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+										className: "bg-black/40 rounded-2xl p-4 mt-4 border border-white/10 flex justify-between items-center",
+										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+											className: "text-xs font-bold text-gray-200 uppercase tracking-wider",
+											children: "Total Time Saved"
+										}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+											id: "result-saved",
+											className: "text-lg font-extrabold text-elixir",
+											children: savedText
+										})]
+									})
+								]
+							}, animKey)
+						]
+					}, "tab-builders"),
+					activeTab === "laboratory" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						className: "tab-panel-fade space-y-4 relative z-10",
+						children: [
 							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-								className: "builder-card rounded-2xl p-4",
-								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
-									className: "block text-base text-[#f8fafc] mb-2.5 font-extrabold flex justify-between items-center",
+								className: "builder-card accent-hero rounded-2xl p-4",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+									className: "flex items-center justify-between mb-2.5",
 									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-										className: "flex items-center gap-2",
-										children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "🧪 Potions Used" })
-									}), potionsInput && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-										type: "button",
-										onClick: () => {
-											triggerHaptic();
-											setPotionsInput("");
-										},
-										className: "tactile text-xs font-bold text-gray-300 hover:text-elixir transition cursor-pointer bg-white/10 px-2 py-0.5 rounded-md",
-										children: "Clear"
+										className: "text-xs font-extrabold uppercase tracking-wider text-[#f0abfc]",
+										children: "⚗️ Research Boost HUD"
+									}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+										className: "text-[11px] font-extrabold px-2 py-0.5 rounded-md bg-fuchsia-500/20 text-[#f0abfc] border border-fuchsia-400/40",
+										children: "24x Speed Boost"
 									})]
 								}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-									className: "flex items-center gap-2.5",
+									className: "flex items-center justify-between gap-2.5 bg-black/40 rounded-xl p-2 border border-white/10",
 									children: [
 										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 											type: "button",
-											onClick: () => adjustPotions(-1),
-											className: "tactile glass-input w-12 h-12 rounded-xl text-xl font-extrabold text-white hover:bg-white/15 flex items-center justify-center cursor-pointer",
-											"aria-label": "Decrease potions",
+											onClick: () => adjustResearchPotions(-1),
+											className: "tactile w-10 h-10 rounded-lg bg-white/10 hover:bg-white/20 text-white font-extrabold text-lg flex items-center justify-center border border-white/15 cursor-pointer",
+											"aria-label": "Decrease Research Potion",
 											children: "−"
 										}),
-										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-											className: "relative flex-1",
-											children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-												type: "number",
-												id: "input-potions",
-												inputMode: "numeric",
-												value: potionsInput,
-												onChange: (e) => handlePotionsChange(e.target.value),
-												placeholder: "0",
-												min: "0",
-												max: "999",
-												className: "glass-input w-full rounded-xl py-3 px-3 text-center text-xl font-extrabold placeholder-gray-500"
-											})
+										/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+											className: "text-center",
+											children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+												className: "text-sm sm:text-base font-extrabold text-[#f8fafc]",
+												children: [
+													researchPotions,
+													" ",
+													researchPotions === 1 ? "Research Potion" : "Research Potions"
+												]
+											}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+												className: "text-[10px] font-bold text-fuchsia-300/90",
+												children: "24x Speed Boost (Saves 23h per potion)"
+											})]
 										}),
 										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 											type: "button",
-											onClick: () => adjustPotions(1),
-											className: "tactile glass-input w-12 h-12 rounded-xl text-xl font-extrabold text-[#fbbf24] hover:bg-white/15 flex items-center justify-center cursor-pointer",
-											"aria-label": "Increase potions",
+											onClick: () => adjustResearchPotions(1),
+											className: "tactile w-10 h-10 rounded-lg bg-fuchsia-500/20 hover:bg-fuchsia-500/30 text-[#f0abfc] font-extrabold text-lg flex items-center justify-center border border-fuchsia-400/40 cursor-pointer",
+											"aria-label": "Increase Research Potion",
 											children: "+"
 										})
 									]
 								})]
 							}),
 							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-								className: "flex gap-2.5 mt-4",
-								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-									type: "button",
-									onClick: calculateTime,
-									className: "btn-calculate tactile flex-1 text-white font-bold text-lg rounded-xl py-4 tracking-wide shadow-lg cursor-pointer",
-									children: "Calculate Finish Time"
-								}), (builders.slice(0, activeBuildersToRender).some((b) => b.d || b.h || b.m) || lockedResults.length > 0) && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
-									type: "button",
-									onClick: resetAllTimes,
-									className: "tactile glass-input hover:border-pink-500/50 hover:bg-pink-500/10 text-gray-200 hover:text-white px-4 rounded-xl flex flex-col items-center justify-center gap-0.5 transition cursor-pointer",
-									title: "Reset all days, hours, and minutes",
-									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("svg", {
-										className: "w-5 h-5 text-gray-200",
-										fill: "none",
-										stroke: "currentColor",
-										viewBox: "0 0 24 24",
-										children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", {
-											strokeLinecap: "round",
-											strokeLinejoin: "round",
-											strokeWidth: "2",
-											d: "M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-										})
-									}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-										className: "text-[10px] font-bold uppercase tracking-wider text-gray-200",
-										children: "Reset"
-									})]
-								})]
-							})
-						]
-					}),
-					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-						id: "results-container",
-						className: `${showResult && lockedResults.length > 0 ? "show-result" : "hidden-result"} mt-8 pt-6 border-t border-white/15 relative z-10`,
-						children: [
-							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-								className: "flex items-center justify-between mb-3",
-								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-									className: "flex items-center gap-1.5",
-									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "h-2 w-2 rounded-full bg-[#22c55e] animate-pulse" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-										className: "text-xs font-extrabold uppercase tracking-wider text-[#f8fafc]",
-										children: "Locked Finish Schedule"
-									})]
-								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-									type: "button",
-									onClick: unlockAndEditTimers,
-									className: "tactile text-xs font-bold text-[#fbbf24] hover:text-amber-300 bg-amber-500/15 hover:bg-amber-500/25 border border-amber-400/30 px-2.5 py-1 rounded-lg cursor-pointer",
-									children: "Reset / Edit Timers"
-								})]
-							}),
-							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-								id: "results-content",
-								className: "space-y-3",
-								children: lockedResults.map((item, idx) => {
-									const isFinishingNext = lockedResults.length > 1 && soonestTargetTimestamp !== null && item.targetTimestamp === soonestTargetTimestamp;
-									const isHero = !item.isGoblin && !!item.rawId?.startsWith("28");
-									const cardAccentClass = item.isGoblin ? "goblin-card accent-goblin" : isHero ? "bg-black/40 border-white/10 accent-hero" : "bg-black/40 border-white/10 accent-gold";
-									const badgeClass = item.isGoblin ? "slot-badge-goblin" : isHero ? "slot-badge-hero" : "slot-badge-regular";
-									return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-										className: `rounded-2xl p-4 border flex flex-col ${cardAccentClass}`,
+								className: "builder-card accent-hero rounded-2xl p-4",
+								children: [
+									/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+										className: "builder-header-sep flex flex-wrap items-center justify-between gap-2",
+										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+											className: "flex flex-wrap items-center gap-2",
+											children: [
+												/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+													className: "slot-badge-hero",
+													children: "[LAB]"
+												}),
+												/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+													className: "upgrade-title",
+													children: labTimer.upgradeTitle || "Troop / Spell Upgrade"
+												}),
+												typeof labTimer.upgradeLevel === "number" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+													className: "lvl-chip",
+													children: ["LVL ", labTimer.upgradeLevel]
+												})
+											]
+										}), (labTimer.d || labTimer.h || labTimer.m || labTimer.upgradeTitle) && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+											type: "button",
+											onClick: () => clearLabSlot("main"),
+											className: "tactile text-xs font-bold text-gray-200 hover:text-elixir transition flex items-center gap-1 px-2 py-0.5 rounded-md bg-white/10 hover:bg-white/15 cursor-pointer",
+											children: "✕ Clear"
+										})]
+									}),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+										className: "grid grid-cols-3 gap-3",
 										children: [
 											/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-												className: "builder-header-sep flex flex-wrap items-center justify-between gap-2",
-												children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-													className: "flex flex-wrap items-center gap-2",
-													children: [
-														/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-															className: badgeClass,
-															children: item.slotBadge
-														}),
-														/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-															className: "upgrade-title",
-															children: item.upgradeTitle
-														}),
-														typeof item.upgradeLevel === "number" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
-															className: item.isGoblin ? "lvl-chip-goblin" : "lvl-chip",
-															children: ["LVL ", item.upgradeLevel]
-														})
-													]
-												}), isFinishingNext && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-													className: "text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-md bg-amber-500/20 text-[#fbbf24] border border-amber-400/40",
-													children: "NEXT FREE"
+												className: "flex flex-col",
+												children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+													type: "number",
+													inputMode: "numeric",
+													value: labTimer.d,
+													onChange: (e) => handleLabTimeChange("main", "d", e.target.value),
+													placeholder: "0",
+													min: "0",
+													max: "999",
+													className: "glass-input lab-input w-full rounded-xl py-3 px-2 text-center text-xl font-bold placeholder-gray-500"
+												}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+													className: "text-xs font-semibold text-gray-200 text-center mt-1",
+													children: "Days"
 												})]
 											}),
 											/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-												className: "flex items-baseline gap-2 mb-3",
-												children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-													className: "text-[10px] uppercase tracking-wider text-gray-300 font-bold",
-													children: "Completes On:"
+												className: "flex flex-col",
+												children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+													type: "number",
+													inputMode: "numeric",
+													value: labTimer.h,
+													onChange: (e) => handleLabTimeChange("main", "h", e.target.value),
+													placeholder: "0",
+													min: "0",
+													max: "24",
+													className: "glass-input lab-input w-full rounded-xl py-3 px-2 text-center text-xl font-bold placeholder-gray-500"
 												}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-													className: "text-base font-extrabold text-gold",
-													children: item.formattedDate
+													className: "text-xs font-semibold text-gray-200 text-center mt-1",
+													children: "Hours"
 												})]
 											}),
-											/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-												className: "pt-2.5 border-t border-white/10",
-												children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(LiveHudTicker, { targetTimestamp: item.targetTimestamp })
+											/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+												className: "flex flex-col",
+												children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+													type: "number",
+													inputMode: "numeric",
+													value: labTimer.m,
+													onChange: (e) => handleLabTimeChange("main", "m", e.target.value),
+													placeholder: "0",
+													min: "0",
+													max: "60",
+													className: "glass-input lab-input w-full rounded-xl py-3 px-2 text-center text-xl font-bold placeholder-gray-500"
+												}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+													className: "text-xs font-semibold text-gray-200 text-center mt-1",
+													children: "Mins"
+												})]
 											})
 										]
-									}, `${item.builderIndex}-${item.targetTimestamp}-${idx}`);
-								})
+									}),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+										className: "flex flex-wrap items-center gap-1.5 mt-3 pt-2.5 border-t border-white/10",
+										children: [[
+											{
+												label: "+6h",
+												d: 0,
+												h: 6
+											},
+											{
+												label: "+12h",
+												d: 0,
+												h: 12
+											},
+											{
+												label: "+1d",
+												d: 1,
+												h: 0
+											},
+											{
+												label: "+3d",
+												d: 3,
+												h: 0
+											},
+											{
+												label: "+5d",
+												d: 5,
+												h: 0
+											},
+											{
+												label: "+7d",
+												d: 7,
+												h: 0
+											}
+										].map((preset) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+											type: "button",
+											onClick: () => applyPresetToLab("main", preset.d, preset.h),
+											className: "tactile text-xs font-bold px-2.5 py-1 rounded-lg border bg-fuchsia-500/15 hover:bg-fuchsia-500/25 text-fuchsia-200 border-fuchsia-500/30 cursor-pointer",
+											children: preset.label
+										}, preset.label)), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+											type: "button",
+											onClick: () => clearLabSlot("main"),
+											className: "tactile text-xs font-bold px-2.5 py-1 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 ml-auto cursor-pointer",
+											children: "Clear"
+										})]
+									}),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+										className: "mt-3 pt-3 border-t border-white/10",
+										children: targetLabTimestamp ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+											className: "flex items-baseline justify-between gap-2 mb-2.5",
+											children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+												className: "text-[10px] uppercase tracking-wider text-gray-300 font-bold",
+												children: "Completes On:"
+											}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+												className: "text-sm sm:text-base font-extrabold text-[#f0abfc]",
+												children: labFormattedDate
+											})]
+										}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)(LiveHudTicker, {
+											targetTimestamp: targetLabTimestamp,
+											label: "Locked Research HUD Ticker",
+											finishBadgeText: "⚡ RESEARCH FINISHED! LAB FREE",
+											accentColorClass: "text-[#f0abfc]"
+										})] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(HudTickerIdle, {
+											label: "Locked Research HUD Ticker",
+											accentUnitColorClass: "text-[#f0abfc]",
+											statusNote: "Enter Lab Time"
+										})
+									})
+								]
 							}),
 							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-								className: "bg-black/40 rounded-2xl p-4 mt-4 border border-white/10 flex justify-between items-center",
+								className: "goblin-card accent-goblin rounded-2xl p-4",
+								children: [
+									/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+										className: "builder-header-sep flex flex-wrap items-center justify-between gap-2",
+										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+											className: "flex flex-wrap items-center gap-2",
+											children: [
+												/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+													className: "slot-badge-goblin",
+													children: "[GOBLIN LAB]"
+												}),
+												/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+													className: "upgrade-title",
+													children: goblinLabTimer.upgradeTitle || "Goblin Researcher"
+												}),
+												typeof goblinLabTimer.upgradeLevel === "number" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+													className: "lvl-chip",
+													children: ["LVL ", goblinLabTimer.upgradeLevel]
+												})
+											]
+										}), goblinLabTimer.d || goblinLabTimer.h || goblinLabTimer.m || goblinLabTimer.upgradeTitle ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+											type: "button",
+											onClick: () => clearLabSlot("goblin"),
+											className: "tactile text-xs font-bold text-gray-200 hover:text-elixir transition flex items-center gap-1 px-2 py-0.5 rounded-md bg-white/10 hover:bg-white/15 cursor-pointer",
+											children: "✕ Clear"
+										}) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+											className: "text-[10px] font-bold text-[#22c55e] uppercase tracking-wider",
+											children: "👺 Extra Research"
+										})]
+									}),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+										className: "text-xs text-gray-300 leading-relaxed mb-3",
+										children: "Secondary research slot powered by the Goblin Researcher for simultaneous laboratory upgrades."
+									}),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+										className: "grid grid-cols-3 gap-3",
+										children: [
+											/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+												className: "flex flex-col",
+												children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+													type: "number",
+													inputMode: "numeric",
+													value: goblinLabTimer.d,
+													onChange: (e) => handleLabTimeChange("goblin", "d", e.target.value),
+													placeholder: "0",
+													min: "0",
+													max: "999",
+													className: "glass-input goblin-input w-full rounded-xl py-3 px-2 text-center text-xl font-bold placeholder-gray-500"
+												}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+													className: "text-xs font-semibold text-gray-200 text-center mt-1",
+													children: "Days"
+												})]
+											}),
+											/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+												className: "flex flex-col",
+												children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+													type: "number",
+													inputMode: "numeric",
+													value: goblinLabTimer.h,
+													onChange: (e) => handleLabTimeChange("goblin", "h", e.target.value),
+													placeholder: "0",
+													min: "0",
+													max: "24",
+													className: "glass-input goblin-input w-full rounded-xl py-3 px-2 text-center text-xl font-bold placeholder-gray-500"
+												}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+													className: "text-xs font-semibold text-gray-200 text-center mt-1",
+													children: "Hours"
+												})]
+											}),
+											/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+												className: "flex flex-col",
+												children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+													type: "number",
+													inputMode: "numeric",
+													value: goblinLabTimer.m,
+													onChange: (e) => handleLabTimeChange("goblin", "m", e.target.value),
+													placeholder: "0",
+													min: "0",
+													max: "60",
+													className: "glass-input goblin-input w-full rounded-xl py-3 px-2 text-center text-xl font-bold placeholder-gray-500"
+												}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+													className: "text-xs font-semibold text-gray-200 text-center mt-1",
+													children: "Mins"
+												})]
+											})
+										]
+									}),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+										className: "flex flex-wrap items-center gap-1.5 mt-3 pt-2.5 border-t border-white/10",
+										children: [[
+											{
+												label: "+6h",
+												d: 0,
+												h: 6
+											},
+											{
+												label: "+12h",
+												d: 0,
+												h: 12
+											},
+											{
+												label: "+1d",
+												d: 1,
+												h: 0
+											},
+											{
+												label: "+3d",
+												d: 3,
+												h: 0
+											},
+											{
+												label: "+5d",
+												d: 5,
+												h: 0
+											},
+											{
+												label: "+7d",
+												d: 7,
+												h: 0
+											}
+										].map((preset) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+											type: "button",
+											onClick: () => applyPresetToLab("goblin", preset.d, preset.h),
+											className: "tactile text-xs font-bold px-2.5 py-1 rounded-lg border bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-200 border-emerald-500/30 cursor-pointer",
+											children: preset.label
+										}, preset.label)), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+											type: "button",
+											onClick: () => clearLabSlot("goblin"),
+											className: "tactile text-xs font-bold px-2.5 py-1 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 ml-auto cursor-pointer",
+											children: "Clear"
+										})]
+									}),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+										className: "mt-3 pt-3 border-t border-white/10",
+										children: targetGoblinLabTimestamp ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+											className: "flex items-baseline justify-between gap-2 mb-2.5",
+											children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+												className: "text-[10px] uppercase tracking-wider text-gray-300 font-bold",
+												children: "Completes On:"
+											}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+												className: "text-sm sm:text-base font-extrabold text-[#22c55e]",
+												children: goblinLabFormattedDate
+											})]
+										}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)(LiveHudTicker, {
+											targetTimestamp: targetGoblinLabTimestamp,
+											label: "Goblin Research HUD Ticker",
+											finishBadgeText: "⚡ GOBLIN RESEARCH FINISHED!",
+											accentColorClass: "text-[#22c55e]"
+										})] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(HudTickerIdle, {
+											label: "Goblin Research HUD Ticker",
+											accentUnitColorClass: "text-[#22c55e]",
+											statusNote: "Standby"
+										})
+									})
+								]
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+								className: "flex gap-2.5",
+								children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+									type: "button",
+									onClick: calculateLabFinish,
+									className: "btn-calculate tactile flex-1 text-white font-bold text-base rounded-xl py-3.5 tracking-wide shadow-lg cursor-pointer",
+									children: "Calculate Lab Finish"
+								})
+							}),
+							(targetLabTimestamp || targetGoblinLabTimestamp) && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "bg-black/40 rounded-2xl p-4 border border-white/10 flex justify-between items-center",
 								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
 									className: "text-xs font-bold text-gray-200 uppercase tracking-wider",
-									children: "Total Time Saved"
+									children: "Research Time Saved"
 								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-									id: "result-saved",
-									className: "text-lg font-extrabold text-elixir",
-									children: savedText
+									className: "text-lg font-extrabold text-[#f0abfc]",
+									children: labSavedText || "0h"
 								})]
 							})
 						]
-					}, animKey)
+					}, "tab-laboratory"),
+					activeTab === "pethouse" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						className: "tab-panel-fade space-y-4 relative z-10",
+						children: [
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "builder-card accent-pet rounded-2xl p-4",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+									className: "flex items-center justify-between mb-2.5",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+										className: "text-xs font-extrabold uppercase tracking-wider text-emerald-300",
+										children: "🐾 Pet Potion Boost HUD"
+									}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+										className: "text-[11px] font-extrabold px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-400/40",
+										children: "24x Speed Boost"
+									})]
+								}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+									className: "flex items-center justify-between gap-2.5 bg-black/40 rounded-xl p-2 border border-white/10",
+									children: [
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+											type: "button",
+											onClick: () => adjustPetPotions(-1),
+											className: "tactile w-10 h-10 rounded-lg bg-white/10 hover:bg-white/20 text-white font-extrabold text-lg flex items-center justify-center border border-white/15 cursor-pointer",
+											"aria-label": "Decrease Pet Potion",
+											children: "−"
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+											className: "text-center",
+											children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+												className: "text-sm sm:text-base font-extrabold text-[#f8fafc]",
+												children: [
+													petPotions,
+													" ",
+													petPotions === 1 ? "Pet Potion" : "Pet Potions"
+												]
+											}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+												className: "text-[10px] font-bold text-emerald-300/90",
+												children: "24x Speed Boost (Saves 23h per potion)"
+											})]
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+											type: "button",
+											onClick: () => adjustPetPotions(1),
+											className: "tactile w-10 h-10 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 font-extrabold text-lg flex items-center justify-center border border-emerald-400/40 cursor-pointer",
+											"aria-label": "Increase Pet Potion",
+											children: "+"
+										})
+									]
+								})]
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "builder-card accent-pet rounded-2xl p-4",
+								children: [
+									/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+										className: "builder-header-sep flex flex-wrap items-center justify-between gap-2",
+										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+											className: "flex flex-wrap items-center gap-2",
+											children: [
+												/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+													className: "slot-badge-goblin",
+													children: "[PET]"
+												}),
+												/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+													className: "upgrade-title",
+													children: petTimer.upgradeTitle || "Active Pet Upgrade"
+												}),
+												typeof petTimer.upgradeLevel === "number" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+													className: "lvl-chip",
+													children: ["LVL ", petTimer.upgradeLevel]
+												})
+											]
+										}), hasPetTimerInput || petTimer.upgradeTitle ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+											type: "button",
+											onClick: clearPetSlot,
+											className: "tactile text-xs font-bold text-gray-200 hover:text-elixir transition flex items-center gap-1 px-2 py-0.5 rounded-md bg-white/10 hover:bg-white/15 cursor-pointer",
+											children: "✕ Clear"
+										}) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+											className: "text-[10px] font-bold text-emerald-300 uppercase tracking-wider",
+											children: "Hero Pets"
+										})]
+									}),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+										className: "grid grid-cols-3 gap-3",
+										children: [
+											/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+												className: "flex flex-col",
+												children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+													type: "number",
+													inputMode: "numeric",
+													value: petTimer.d,
+													onChange: (e) => handlePetTimeChange("d", e.target.value),
+													placeholder: "0",
+													min: "0",
+													max: "999",
+													className: "glass-input pet-input w-full rounded-xl py-3 px-2 text-center text-xl font-bold placeholder-gray-500"
+												}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+													className: "text-xs font-semibold text-gray-200 text-center mt-1",
+													children: "Days"
+												})]
+											}),
+											/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+												className: "flex flex-col",
+												children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+													type: "number",
+													inputMode: "numeric",
+													value: petTimer.h,
+													onChange: (e) => handlePetTimeChange("h", e.target.value),
+													placeholder: "0",
+													min: "0",
+													max: "24",
+													className: "glass-input pet-input w-full rounded-xl py-3 px-2 text-center text-xl font-bold placeholder-gray-500"
+												}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+													className: "text-xs font-semibold text-gray-200 text-center mt-1",
+													children: "Hours"
+												})]
+											}),
+											/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+												className: "flex flex-col",
+												children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+													type: "number",
+													inputMode: "numeric",
+													value: petTimer.m,
+													onChange: (e) => handlePetTimeChange("m", e.target.value),
+													placeholder: "0",
+													min: "0",
+													max: "60",
+													className: "glass-input pet-input w-full rounded-xl py-3 px-2 text-center text-xl font-bold placeholder-gray-500"
+												}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+													className: "text-xs font-semibold text-gray-200 text-center mt-1",
+													children: "Mins"
+												})]
+											})
+										]
+									}),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+										className: "flex flex-wrap items-center gap-1.5 mt-3 pt-2.5 border-t border-white/10",
+										children: [[
+											{
+												label: "+6h",
+												d: 0,
+												h: 6
+											},
+											{
+												label: "+12h",
+												d: 0,
+												h: 12
+											},
+											{
+												label: "+1d",
+												d: 1,
+												h: 0
+											},
+											{
+												label: "+3d",
+												d: 3,
+												h: 0
+											},
+											{
+												label: "+5d",
+												d: 5,
+												h: 0
+											},
+											{
+												label: "+7d",
+												d: 7,
+												h: 0
+											}
+										].map((preset) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+											type: "button",
+											onClick: () => applyPresetToPet(preset.d, preset.h),
+											className: "tactile text-xs font-bold px-2.5 py-1 rounded-lg border bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-200 border-emerald-500/30 cursor-pointer",
+											children: preset.label
+										}, preset.label)), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+											type: "button",
+											onClick: clearPetSlot,
+											className: "tactile text-xs font-bold px-2.5 py-1 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 ml-auto cursor-pointer",
+											children: "Clear"
+										})]
+									}),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+										className: "mt-3 pt-3 border-t border-white/10",
+										children: targetPetTimestamp ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+											className: "flex items-baseline justify-between gap-2 mb-2.5",
+											children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+												className: "text-[10px] uppercase tracking-wider text-gray-300 font-bold",
+												children: "Completes On:"
+											}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+												className: "text-sm sm:text-base font-extrabold text-emerald-300",
+												children: petFormattedDate
+											})]
+										}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)(LiveHudTicker, {
+											targetTimestamp: targetPetTimestamp,
+											label: "Locked Pet HUD Ticker",
+											finishBadgeText: "⚡ PET UPGRADE FINISHED! PET READY",
+											accentColorClass: "text-emerald-400"
+										})] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(HudTickerIdle, {
+											label: "Locked Pet HUD Ticker",
+											accentUnitColorClass: "text-emerald-400",
+											statusNote: "Enter Pet Time"
+										})
+									})
+								]
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+								className: "flex gap-2.5",
+								children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+									type: "button",
+									onClick: calculatePetFinish,
+									className: "btn-calculate tactile flex-1 text-white font-bold text-base rounded-xl py-3.5 tracking-wide shadow-lg cursor-pointer",
+									children: "Calculate Pet Finish"
+								})
+							}),
+							targetPetTimestamp && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "bg-black/40 rounded-2xl p-4 border border-white/10 flex justify-between items-center",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+									className: "text-xs font-bold text-gray-200 uppercase tracking-wider",
+									children: "Pet Time Saved"
+								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+									className: "text-lg font-extrabold text-emerald-300",
+									children: petSavedText || "0h"
+								})]
+							})
+						]
+					}, "tab-pethouse")
 				]
+			}),
+			renamingAccountId && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+				className: "fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4",
+				onClick: () => {
+					setRenamingAccountId(null);
+					setConfirmDeleteVillage(false);
+				},
+				children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+					className: "w-full max-w-sm rounded-3xl p-6 bg-[#090d16] border border-amber-400/35 shadow-[0_0_40px_rgba(0,0,0,0.9)] space-y-4 relative overflow-hidden",
+					onClick: (e) => e.stopPropagation(),
+					children: [
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "flex items-center justify-between",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "flex items-center gap-2",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+									className: "text-base",
+									children: "✏️"
+								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", {
+									className: "text-base sm:text-lg font-extrabold text-[#f8fafc]",
+									children: "Village Profile Settings"
+								})]
+							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+								type: "button",
+								onClick: () => {
+									triggerHaptic(15);
+									setRenamingAccountId(null);
+									setConfirmDeleteVillage(false);
+								},
+								className: "tactile text-gray-400 hover:text-white text-sm font-bold px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/10 cursor-pointer",
+								children: "✕"
+							})]
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", {
+								className: "block text-xs font-extrabold uppercase tracking-wider text-[#fbbf24] mb-1.5",
+								children: "Custom Village Name"
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+								type: "text",
+								value: renameVillageInput,
+								onChange: (e) => setRenameVillageInput(e.target.value),
+								onKeyDown: (e) => {
+									if (e.key === "Enter") {
+										e.preventDefault();
+										handleSaveRenamedVillage();
+									}
+								},
+								placeholder: "e.g. TH17 Main, Donation Base, War Account",
+								maxLength: 28,
+								autoFocus: true,
+								className: "glass-input w-full rounded-xl px-3.5 py-2.5 text-sm font-bold text-white placeholder-gray-500"
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+								className: "flex flex-wrap gap-1.5 mt-2.5",
+								children: [
+									"TH17 Main",
+									"War Account",
+									"Donation Base",
+									"Mini Base"
+								].map((suggestion) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+									type: "button",
+									onClick: () => {
+										triggerHaptic(12);
+										setRenameVillageInput(suggestion);
+									},
+									className: "tactile text-[11px] font-bold px-2 py-1 rounded-lg bg-white/5 hover:bg-white/15 text-slate-300 border border-white/10 cursor-pointer",
+									children: suggestion
+								}, suggestion))
+							})
+						] }),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+							className: "pt-2 border-t border-white/10",
+							children: !confirmDeleteVillage ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+								type: "button",
+								onClick: () => {
+									triggerHaptic(15);
+									setConfirmDeleteVillage(true);
+								},
+								className: "tactile w-full py-2.5 px-3 rounded-xl font-extrabold text-xs sm:text-sm text-rose-300 bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/35 flex items-center justify-center gap-1.5 cursor-pointer",
+								children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "🗑️ Delete Village" })
+							}) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "rounded-2xl p-3 bg-rose-950/60 border border-rose-500/40 space-y-2.5",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+									className: "text-xs font-bold text-rose-200 text-center",
+									children: "Delete this village and all its saved timers?"
+								}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+									className: "flex gap-2",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+										type: "button",
+										onClick: () => {
+											triggerHaptic(12);
+											setConfirmDeleteVillage(false);
+										},
+										className: "tactile flex-1 py-2 rounded-xl text-xs font-bold text-gray-200 bg-white/10 hover:bg-white/15 border border-white/10 cursor-pointer",
+										children: "Keep Village"
+									}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+										type: "button",
+										onClick: handleConfirmDeleteVillage,
+										className: "tactile flex-1 py-2 rounded-xl text-xs font-extrabold text-white bg-rose-600 hover:bg-rose-500 border border-rose-400/50 shadow-lg cursor-pointer",
+										children: "Yes, Delete"
+									})]
+								})]
+							})
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "flex gap-2.5 pt-1",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+								type: "button",
+								onClick: () => {
+									triggerHaptic(15);
+									setRenamingAccountId(null);
+									setConfirmDeleteVillage(false);
+								},
+								className: "tactile flex-1 py-2.5 rounded-xl font-bold text-xs sm:text-sm text-gray-200 bg-white/10 hover:bg-white/15 border border-white/10 cursor-pointer",
+								children: "Cancel"
+							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+								type: "button",
+								onClick: handleSaveRenamedVillage,
+								className: "btn-calculate tactile flex-1 py-2.5 rounded-xl font-extrabold text-xs sm:text-sm text-white shadow-lg cursor-pointer",
+								children: "Save"
+							})]
+						})
+					]
+				})
 			}),
 			isImportModalOpen && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 				className: "fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4",
-				onClick: () => setIsImportModalOpen(false),
+				onClick: () => {
+					setIsImportModalOpen(false);
+					setIsAddingNewAccount(false);
+				},
 				children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 					className: "w-full max-w-md rounded-3xl p-6 bg-[#090d16] border border-white/15 shadow-[0_0_40px_rgba(0,0,0,0.85)] space-y-4 relative overflow-hidden",
 					onClick: (e) => e.stopPropagation(),
@@ -12784,21 +14982,33 @@ function App() {
 								className: "flex items-center gap-2",
 								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
 									className: "text-lg",
-									children: "📥"
+									children: isAddingNewAccount ? "🏰" : "📥"
 								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", {
 									className: "text-lg font-extrabold text-[#f8fafc]",
-									children: "Import CoC Village JSON"
+									children: isAddingNewAccount ? "Add New Village Profile" : "Import CoC Village JSON"
 								})]
 							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 								type: "button",
 								onClick: () => {
-									triggerHaptic();
+									triggerHaptic(15);
 									setIsImportModalOpen(false);
+									setIsAddingNewAccount(false);
 								},
 								className: "tactile text-gray-400 hover:text-white text-sm font-bold px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/10 cursor-pointer",
 								children: "✕"
 							})]
 						}),
+						isAddingNewAccount && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", {
+							className: "block text-xs font-extrabold uppercase tracking-wider text-[#fbbf24] mb-1.5",
+							children: "Village Profile Name"
+						}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+							type: "text",
+							value: newVillageNameInput,
+							onChange: (e) => setNewVillageNameInput(e.target.value),
+							placeholder: "e.g. TH17 Main / Donation Base",
+							maxLength: 28,
+							className: "glass-input w-full rounded-xl px-3.5 py-2.5 text-xs font-bold text-white placeholder-gray-500"
+						})] }),
 						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
 							className: "text-xs text-gray-300 leading-relaxed",
 							children: [
@@ -12818,12 +15028,12 @@ function App() {
 								value: jsonInputText,
 								onChange: (e) => setJsonInputText(e.target.value),
 								placeholder: "Paste your raw Clash of Clans village export JSON here...",
-								rows: 6,
+								rows: 5,
 								className: "glass-input w-full rounded-2xl p-3.5 text-xs font-mono text-gray-100 placeholder-gray-500 resize-none focus:outline-none"
 							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 								type: "button",
 								onClick: async () => {
-									triggerHaptic();
+									triggerHaptic(15);
 									try {
 										const clip = await navigator.clipboard.readText();
 										if (clip) setJsonInputText(clip);
@@ -12834,21 +15044,31 @@ function App() {
 							})]
 						}),
 						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-							className: "flex gap-2.5 pt-1",
-							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-								type: "button",
-								onClick: () => {
-									triggerHaptic();
-									setIsImportModalOpen(false);
-								},
-								className: "tactile flex-1 py-3 rounded-xl font-bold text-sm text-gray-200 bg-white/10 hover:bg-white/15 border border-white/10 cursor-pointer",
-								children: "Cancel"
-							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-								type: "button",
-								onClick: handleImportVillageJson,
-								className: "btn-calculate tactile flex-1 py-3 rounded-xl font-extrabold text-sm text-white shadow-lg cursor-pointer",
-								children: "Import Timers"
-							})]
+							className: "flex flex-wrap gap-2.5 pt-1",
+							children: [
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+									type: "button",
+									onClick: () => {
+										triggerHaptic(15);
+										setIsImportModalOpen(false);
+										setIsAddingNewAccount(false);
+									},
+									className: "tactile py-3 px-4 rounded-xl font-bold text-xs sm:text-sm text-gray-200 bg-white/10 hover:bg-white/15 border border-white/10 cursor-pointer",
+									children: "Cancel"
+								}),
+								isAddingNewAccount && !jsonInputText.trim() && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+									type: "button",
+									onClick: handleCreateEmptyVillage,
+									className: "tactile flex-1 py-3 px-4 rounded-xl font-extrabold text-xs sm:text-sm text-[#fbbf24] bg-amber-500/15 hover:bg-amber-500/25 border border-amber-400/40 cursor-pointer",
+									children: "Create Empty Village"
+								}),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+									type: "button",
+									onClick: handleImportVillageJson,
+									className: "btn-calculate tactile flex-1 py-3 px-4 rounded-xl font-extrabold text-xs sm:text-sm text-white shadow-lg cursor-pointer",
+									children: isAddingNewAccount ? "Import & Add Village" : "Import Timers"
+								})
+							]
 						})
 					]
 				})
@@ -12859,3 +15079,4 @@ function App() {
 // src/main.tsx
 registerSW({ immediate: true });
 (0, import_client.createRoot)(document.getElementById("root")).render(/* @__PURE__ */ (0, import_jsx_runtime.jsx)(App, {}));
+export { WebPlugin as t };

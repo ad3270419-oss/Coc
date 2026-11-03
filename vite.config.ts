@@ -12,6 +12,7 @@ export default defineConfig(() => {
       VitePWA({
         registerType: 'autoUpdate',
         includeAssets: [
+          'icon.png',
           'icon.svg',
           'apple-touch-icon.png',
           'pwa-192x192.png',
@@ -20,12 +21,12 @@ export default defineConfig(() => {
         ],
         manifest: {
           id: '/',
-          name: 'CoC Potion Calculator',
-          short_name: 'CoC Potion',
+          name: 'Clash Planner',
+          short_name: 'Clash Planner',
           description:
-            'Clash of Clans Builder Potion & Hammer Jam Calculator with offline support, saved inputs, and Android pop-up floating window multitasking.',
-          theme_color: '#0f172a',
-          background_color: '#0f172a',
+            'Clash Planner — Clash of Clans Upgrade Companion for Builders, Laboratory, and Pet House with 10x/24x potion math and background notifications.',
+          theme_color: '#090d16',
+          background_color: '#090d16',
           display: 'standalone',
           display_override: ['window-controls-overlay', 'standalone', 'minimal-ui'],
           orientation: 'any',
@@ -34,22 +35,28 @@ export default defineConfig(() => {
           categories: ['utilities', 'games'],
           icons: [
             {
-              src: '/pwa-192x192.png',
+              src: '/icon.png',
               sizes: '192x192',
               type: 'image/png',
               purpose: 'any',
+            },
+            {
+              src: '/icon.png',
+              sizes: '512x512',
+              type: 'image/png',
+              purpose: 'any',
+            },
+            {
+              src: '/icon.png',
+              sizes: '512x512',
+              type: 'image/png',
+              purpose: 'maskable',
             },
             {
               src: '/pwa-512x512.png',
               sizes: '512x512',
               type: 'image/png',
               purpose: 'any',
-            },
-            {
-              src: '/pwa-maskable-512x512.png',
-              sizes: '512x512',
-              type: 'image/png',
-              purpose: 'maskable',
             },
           ],
         },

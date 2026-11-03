@@ -141,6 +141,87 @@
             box-shadow: -2px 0 8px rgba(34, 197, 94, 0.3), 0 0 20px rgba(34, 197, 94, 0.15), inset 0 0 12px rgba(34, 197, 94, 0.08) !important;
         }
 
+        .accent-pet {
+            border-left: 3px solid #10b981 !important;
+        }
+
+        .text-planner-gradient {
+            background: linear-gradient(90deg, #ec4899 0%, #fbbf24 100%);
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+        }
+
+        .tagline-companion {
+            color: #fbbf24;
+            letter-spacing: 0.25rem;
+            font-size: 0.75rem;
+            font-weight: 700;
+        }
+
+        .account-bar-scroll {
+            scrollbar-width: none;
+            -ms-overflow-style: none;
+        }
+        .account-bar-scroll::-webkit-scrollbar {
+            display: none;
+        }
+
+        .account-chip-active {
+            border: 1px solid #fbbf24;
+            background: rgba(251, 191, 36, 0.1);
+            color: #fbbf24;
+            box-shadow: 0 0 12px rgba(251, 191, 36, 0.18);
+        }
+
+        .account-chip-inactive {
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            background: rgba(15, 23, 42, 0.55);
+            color: #94a3b8;
+        }
+
+        .account-chip-add {
+            border: 1px dashed rgba(255, 255, 255, 0.25);
+            background: rgba(15, 23, 42, 0.35);
+            color: #cbd5e1;
+        }
+
+        .seg-tab-builders-active {
+            border: 1px solid #fbbf24;
+            background: rgba(251, 191, 36, 0.14);
+            color: #fbbf24;
+            box-shadow: 0 0 14px rgba(251, 191, 36, 0.22);
+        }
+
+        .seg-tab-lab-active {
+            border: 1px solid #d946ef;
+            background: linear-gradient(135deg, rgba(217, 70, 239, 0.18) 0%, rgba(6, 182, 212, 0.14) 100%);
+            color: #f0abfc;
+            box-shadow: 0 0 14px rgba(217, 70, 239, 0.28);
+        }
+
+        .seg-tab-pet-active {
+            border: 1px solid #10b981;
+            background: rgba(16, 185, 129, 0.16);
+            color: #34d399;
+            box-shadow: 0 0 14px rgba(16, 185, 129, 0.25);
+        }
+
+        .tab-panel-fade {
+            animation: tabFadeSlide 0.26s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+
+        @keyframes tabFadeSlide {
+            0% {
+                opacity: 0;
+                transform: translateY(6px);
+            }
+            100% {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
         .builder-header-sep {
             border-bottom: 1px solid rgba(255, 255, 255, 0.08);
             padding-bottom: 8px;
@@ -265,16 +346,16 @@
     <!-- Toast Notification -->
     <div id="toast-box" class="hidden fixed top-4 left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 rounded-2xl font-extrabold text-xs sm:text-sm shadow-2xl border flex items-center gap-2 transition-all"></div>
 
-    <div class="glass-card w-full max-w-md rounded-3xl p-5 sm:p-8 relative overflow-hidden my-auto">
+    <div class="glass-card w-full max-w-md rounded-3xl p-5 sm:p-7 relative overflow-hidden my-auto">
         <div class="absolute -top-10 -right-10 w-32 h-32 bg-pink-500 rounded-full mix-blend-screen filter blur-[50px] opacity-40 pointer-events-none"></div>
         <div class="absolute -bottom-10 -left-10 w-32 h-32 bg-yellow-500 rounded-full mix-blend-screen filter blur-[50px] opacity-30 pointer-events-none"></div>
 
-        <!-- Header + Import CoC JSON Button -->
-        <div class="text-center mb-5 relative z-10">
-            <h1 class="text-2xl sm:text-3xl font-bold tracking-wide">
-                Builder <span class="text-elixir">Potion</span>
+        <!-- 1. Branding & Header + Import CoC JSON Button -->
+        <div class="text-center mb-4 relative z-10">
+            <h1 class="text-2xl sm:text-3xl font-extrabold tracking-wide">
+                <span class="text-white">Clash</span> <span class="text-planner-gradient">Planner</span>
             </h1>
-            <p class="text-gray-300 text-sm mt-1 uppercase tracking-widest text-gold text-xs font-semibold">Hammer Jam Calculator</p>
+            <p class="tagline-companion mt-1 uppercase">UPGRADE COMPANION</p>
             <div class="mt-3.5 flex justify-center">
                 <button type="button" onclick="openImportModal()" class="tactile inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-extrabold text-[#f8fafc] bg-gradient-to-r from-amber-500/20 via-pink-500/20 to-purple-500/20 border border-amber-400/50 shadow-[0_0_15px_rgba(251,191,36,0.25)] cursor-pointer">
                     <span>📥 Import CoC JSON</span>
@@ -282,75 +363,173 @@
             </div>
         </div>
 
-        <!-- Mode Toggle -->
-        <div class="flex bg-black/40 rounded-xl p-1 mb-6 border border-white/10 relative z-10">
-            <button id="btn-mode-single" onclick="setMode('single')" class="tactile flex-1 py-2.5 text-sm font-bold rounded-lg bg-white/20 text-white shadow-sm transition-all">Single Builder</button>
-            <button id="btn-mode-multi" onclick="setMode('multi')" class="tactile flex-1 py-2.5 text-sm font-bold rounded-lg text-gray-300 hover:text-white transition-all">All Builders</button>
+        <!-- 2. Multi-Account Profile Switcher (Top Bar) -->
+        <div class="bg-black/45 border border-white/10 rounded-2xl p-2 mb-3.5 relative z-10">
+            <div class="account-bar-scroll flex items-center gap-2 overflow-x-auto">
+                <button type="button" onclick="triggerHaptic(15)" class="tactile account-chip-active shrink-0 px-3 py-1.5 rounded-xl text-xs font-extrabold flex items-center gap-1.5 cursor-pointer">
+                    <span class="w-2 h-2 rounded-full bg-[#22c55e] shadow-[0_0_6px_#22c55e] inline-block"></span>
+                    <span>Main Account</span>
+                </button>
+                <button type="button" onclick="openImportModal()" class="tactile account-chip-add shrink-0 px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1 cursor-pointer">
+                    <span>+ Add Village</span>
+                </button>
+            </div>
         </div>
 
-        <!-- Inputs Section -->
-        <div class="space-y-6 relative z-10">
-            <!-- Builders Slider (Hidden in single mode) -->
-            <div id="multi-builders-config" class="hidden bg-black/30 p-4 rounded-2xl border border-white/10">
-                <div class="flex justify-between items-center mb-3">
-                    <label class="text-base text-[#f8fafc] font-bold">Active Builders</label>
-                    <div id="builders-badge" class="text-[#fbbf24] font-extrabold bg-black/50 px-3 py-1 rounded-lg shadow-inner border border-amber-400/20">
-                        <span id="builders-count-label">2</span> <span id="builders-icon">👷</span>
+        <!-- 3. Segmented Category Tabs -->
+        <div class="grid grid-cols-3 gap-1.5 bg-black/50 p-1.5 rounded-2xl border border-white/10 mb-5 relative z-10">
+            <button id="seg-btn-builders" type="button" onclick="switchCategoryTab('builders')" class="tactile seg-tab-builders-active py-2.5 px-1.5 rounded-xl text-[11px] sm:text-xs font-extrabold transition-all flex items-center justify-center gap-1 cursor-pointer border">
+                <span>🔨</span><span class="truncate">Builders (6+1)</span>
+            </button>
+            <button id="seg-btn-lab" type="button" onclick="switchCategoryTab('laboratory')" class="tactile border-transparent text-slate-400 py-2.5 px-1.5 rounded-xl text-[11px] sm:text-xs font-extrabold transition-all flex items-center justify-center gap-1 cursor-pointer border">
+                <span>⚗️</span><span class="truncate">Laboratory</span>
+            </button>
+            <button id="seg-btn-pet" type="button" onclick="switchCategoryTab('pethouse')" class="tactile border-transparent text-slate-400 py-2.5 px-1.5 rounded-xl text-[11px] sm:text-xs font-extrabold transition-all flex items-center justify-center gap-1 cursor-pointer border">
+                <span>🐾</span><span class="truncate">Pet House</span>
+            </button>
+        </div>
+
+        <!-- TAB 1: BUILDERS -->
+        <div id="tab-builders-panel" class="tab-panel-fade relative z-10">
+            <!-- Mode Toggle -->
+            <div class="flex bg-black/40 rounded-xl p-1 mb-6 border border-white/10">
+                <button id="btn-mode-single" onclick="setMode('single')" class="tactile flex-1 py-2.5 text-sm font-bold rounded-lg bg-white/20 text-white shadow-sm transition-all">Single Builder</button>
+                <button id="btn-mode-multi" onclick="setMode('multi')" class="tactile flex-1 py-2.5 text-sm font-bold rounded-lg text-gray-300 hover:text-white transition-all">All Builders</button>
+            </div>
+
+            <!-- Inputs Section -->
+            <div class="space-y-6">
+                <!-- Builders Slider (Hidden in single mode) -->
+                <div id="multi-builders-config" class="hidden bg-black/30 p-4 rounded-2xl border border-white/10">
+                    <div class="flex justify-between items-center mb-3">
+                        <label class="text-base text-[#f8fafc] font-bold">Active Builders</label>
+                        <div id="builders-badge" class="text-[#fbbf24] font-extrabold bg-black/50 px-3 py-1 rounded-lg shadow-inner border border-amber-400/20">
+                            <span id="builders-count-label">2</span> <span id="builders-icon">👷</span>
+                        </div>
+                    </div>
+                    <input type="range" id="input-builders" min="1" max="7" value="2" class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer" style="accent-color: #EC4899;" oninput="onSliderChange()">
+                    <div class="flex justify-between text-[11px] font-semibold text-gray-300 mt-2 px-0.5">
+                        <span>1 Builder</span>
+                        <span>6 Builders</span>
+                        <span class="text-emerald-400">7: Goblin 👺</span>
                     </div>
                 </div>
-                <input type="range" id="input-builders" min="1" max="7" value="2" class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer" style="accent-color: #EC4899;" oninput="onSliderChange()">
-                <div class="flex justify-between text-[11px] font-semibold text-gray-300 mt-2 px-0.5">
-                    <span>1 Builder</span>
-                    <span>6 Builders</span>
-                    <span class="text-emerald-400">7: Goblin 👺</span>
+
+                <!-- Time Inputs Container -->
+                <div id="time-inputs-container" class="space-y-4"></div>
+
+                <!-- Potions Input -->
+                <div class="builder-card accent-gold rounded-2xl p-4">
+                    <label class="block text-base text-[#f8fafc] mb-2.5 font-extrabold flex justify-between items-center">
+                        <span>🧪 Builder Potions Used</span>
+                        <button type="button" onclick="clearPotions()" class="tactile text-xs font-bold text-gray-300 hover:text-elixir bg-white/10 px-2 py-0.5 rounded-md">Clear</button>
+                    </label>
+                    <div class="flex items-center gap-2.5">
+                        <button type="button" onclick="adjustPotions(-1)" class="tactile glass-input w-12 h-12 rounded-xl text-xl font-extrabold text-white flex items-center justify-center">−</button>
+                        <input type="number" id="input-potions" oninput="clampInput(this, 999); saveState();" placeholder="0" min="0" max="999" class="glass-input flex-1 rounded-xl py-3 px-3 text-center text-xl font-extrabold placeholder-gray-500">
+                        <button type="button" onclick="adjustPotions(1)" class="tactile glass-input w-12 h-12 rounded-xl text-xl font-extrabold text-[#fbbf24] flex items-center justify-center">+</button>
+                    </div>
+                    <div class="mt-3 flex justify-center">
+                        <span style="background: rgba(251, 191, 36, 0.1); color: #fbbf24; border: 1px solid rgba(251, 191, 36, 0.3); border-radius: 6px; padding: 2px 8px; font-size: 0.75rem; font-weight: 700;">10x Speed Boost (Saves 9h per potion)</span>
+                    </div>
+                </div>
+
+                <!-- Calculate & Reset Buttons -->
+                <div class="flex gap-2.5 mt-4">
+                    <button onclick="calculateTime()" class="btn-calculate tactile flex-1 text-white font-bold text-lg rounded-xl py-4 tracking-wide shadow-lg cursor-pointer">
+                        Calculate Finish Time
+                    </button>
+                    <button onclick="resetAllTimes()" class="tactile glass-input hover:border-pink-500/50 hover:bg-pink-500/10 text-gray-200 hover:text-white px-4 rounded-xl flex flex-col items-center justify-center gap-0.5 transition cursor-pointer" title="Reset all added days, hours, and minutes">
+                        <svg class="w-5 h-5 text-gray-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                        </svg>
+                        <span class="text-[10px] font-bold uppercase tracking-wider text-gray-200">Reset</span>
+                    </button>
                 </div>
             </div>
 
-            <!-- Time Inputs Container -->
-            <div id="time-inputs-container" class="space-y-4"></div>
-
-            <!-- Potions Input -->
-            <div class="builder-card rounded-2xl p-4">
-                <label class="block text-base text-[#f8fafc] mb-2.5 font-extrabold flex justify-between items-center">
-                    <span>🧪 Potions Used</span>
-                    <button type="button" onclick="clearPotions()" class="tactile text-xs font-bold text-gray-300 hover:text-elixir bg-white/10 px-2 py-0.5 rounded-md">Clear</button>
-                </label>
-                <div class="flex items-center gap-2.5">
-                    <button type="button" onclick="adjustPotions(-1)" class="tactile glass-input w-12 h-12 rounded-xl text-xl font-extrabold text-white flex items-center justify-center">−</button>
-                    <input type="number" id="input-potions" oninput="clampInput(this, 999); saveState();" placeholder="0" min="0" max="999" class="glass-input flex-1 rounded-xl py-3 px-3 text-center text-xl font-extrabold placeholder-gray-500">
-                    <button type="button" onclick="adjustPotions(1)" class="tactile glass-input w-12 h-12 rounded-xl text-xl font-extrabold text-[#fbbf24] flex items-center justify-center">+</button>
+            <!-- Results Section (Animated + 4-Unit HUD Live Ticker) -->
+            <div id="results-container" class="hidden-result mt-8 pt-6 border-t border-white/15">
+                <div class="flex items-center justify-between mb-3">
+                    <div class="flex items-center gap-1.5">
+                        <span class="h-2 w-2 rounded-full bg-[#22c55e] animate-pulse"></span>
+                        <span class="text-xs font-extrabold uppercase tracking-wider text-[#f8fafc]">Locked Finish Schedule</span>
+                    </div>
+                    <button type="button" onclick="unlockAndEditTimers()" class="tactile text-xs font-bold text-[#fbbf24] bg-amber-500/15 border border-amber-400/30 px-2.5 py-1 rounded-lg">Reset / Edit Timers</button>
                 </div>
-            </div>
 
-            <!-- Calculate & Reset Buttons -->
-            <div class="flex gap-2.5 mt-4">
-                <button onclick="calculateTime()" class="btn-calculate tactile flex-1 text-white font-bold text-lg rounded-xl py-4 tracking-wide shadow-lg cursor-pointer">
-                    Calculate Finish Time
-                </button>
-                <button onclick="resetAllTimes()" class="tactile glass-input hover:border-pink-500/50 hover:bg-pink-500/10 text-gray-200 hover:text-white px-4 rounded-xl flex flex-col items-center justify-center gap-0.5 transition cursor-pointer" title="Reset all added days, hours, and minutes">
-                    <svg class="w-5 h-5 text-gray-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                    </svg>
-                    <span class="text-[10px] font-bold uppercase tracking-wider text-gray-200">Reset</span>
-                </button>
+                <div id="results-content" class="space-y-3"></div>
+
+                <div class="bg-black/40 rounded-2xl p-4 mt-4 border border-white/10 flex justify-between items-center">
+                    <p class="text-xs font-bold text-gray-200 uppercase tracking-wider">Total Time Saved</p>
+                    <div id="result-saved" class="text-lg font-extrabold text-elixir"></div>
+                </div>
             </div>
         </div>
 
-        <!-- Results Section (Animated + 4-Unit HUD Live Ticker) -->
-        <div id="results-container" class="hidden-result mt-8 pt-6 border-t border-white/15 relative z-10">
-            <div class="flex items-center justify-between mb-3">
-                <div class="flex items-center gap-1.5">
-                    <span class="h-2 w-2 rounded-full bg-[#22c55e] animate-pulse"></span>
-                    <span class="text-xs font-extrabold uppercase tracking-wider text-[#f8fafc]">Locked Finish Schedule</span>
+        <!-- TAB 2: LABORATORY 24x ENGINE -->
+        <div id="tab-lab-panel" class="hidden tab-panel-fade space-y-4 relative z-10">
+            <div class="builder-card accent-hero rounded-2xl p-4">
+                <div class="flex items-center justify-between mb-2.5">
+                    <span class="text-xs font-extrabold uppercase tracking-wider text-[#f0abfc]">⚗️ Research Boost HUD</span>
+                    <span class="text-[11px] font-extrabold px-2 py-0.5 rounded-md bg-fuchsia-500/20 text-[#f0abfc] border border-fuchsia-400/40">24x Speed Boost</span>
                 </div>
-                <button type="button" onclick="unlockAndEditTimers()" class="tactile text-xs font-bold text-[#fbbf24] bg-amber-500/15 border border-amber-400/30 px-2.5 py-1 rounded-lg">Reset / Edit Timers</button>
+                <div class="flex items-center justify-between gap-2.5 bg-black/40 rounded-xl p-2 border border-white/10">
+                    <button type="button" onclick="triggerHaptic(15)" class="tactile w-10 h-10 rounded-lg bg-white/10 text-white font-extrabold text-lg flex items-center justify-center border border-white/15">−</button>
+                    <div class="text-center">
+                        <div class="text-sm sm:text-base font-extrabold text-[#f8fafc]">1 Research Potion</div>
+                        <div class="text-[10px] font-bold text-fuchsia-300/90">24x Speed Boost (Saves 23h per potion)</div>
+                    </div>
+                    <button type="button" onclick="triggerHaptic(15)" class="tactile w-10 h-10 rounded-lg bg-fuchsia-500/20 text-[#f0abfc] font-extrabold text-lg flex items-center justify-center border border-fuchsia-400/40">+</button>
+                </div>
             </div>
 
-            <div id="results-content" class="space-y-3"></div>
+            <div class="builder-card accent-hero rounded-2xl p-4">
+                <div class="builder-header-sep flex flex-wrap items-center justify-between gap-2">
+                    <div class="flex flex-wrap items-center gap-2">
+                        <span class="slot-badge-hero">[LAB]</span>
+                        <span class="upgrade-title">Troop / Spell Upgrade</span>
+                    </div>
+                </div>
+                <p class="text-xs text-gray-300 leading-relaxed mb-3">Active Laboratory troop, spell, or siege machine research timers will populate here automatically.</p>
+            </div>
 
-            <div class="bg-black/40 rounded-2xl p-4 mt-4 border border-white/10 flex justify-between items-center">
-                <p class="text-xs font-bold text-gray-200 uppercase tracking-wider">Total Time Saved</p>
-                <div id="result-saved" class="text-lg font-extrabold text-elixir"></div>
+            <div class="goblin-card accent-goblin rounded-2xl p-4">
+                <div class="builder-header-sep flex flex-wrap items-center justify-between gap-2">
+                    <div class="flex flex-wrap items-center gap-2">
+                        <span class="slot-badge-goblin">[GOBLIN LAB]</span>
+                        <span class="upgrade-title">Goblin Researcher</span>
+                    </div>
+                </div>
+                <p class="text-xs text-gray-300 leading-relaxed">Secondary research slot powered by the Goblin Researcher for simultaneous laboratory upgrades.</p>
+            </div>
+        </div>
+
+        <!-- TAB 3: PET HOUSE 24x ENGINE -->
+        <div id="tab-pet-panel" class="hidden tab-panel-fade space-y-4 relative z-10">
+            <div class="builder-card accent-pet rounded-2xl p-4">
+                <div class="flex items-center justify-between mb-2.5">
+                    <span class="text-xs font-extrabold uppercase tracking-wider text-emerald-300">🐾 Pet Potion Boost HUD</span>
+                    <span class="text-[11px] font-extrabold px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-400/40">24x Speed Boost</span>
+                </div>
+                <div class="flex items-center justify-between gap-2.5 bg-black/40 rounded-xl p-2 border border-white/10">
+                    <button type="button" onclick="triggerHaptic(15)" class="tactile w-10 h-10 rounded-lg bg-white/10 text-white font-extrabold text-lg flex items-center justify-center border border-white/15">−</button>
+                    <div class="text-center">
+                        <div class="text-sm sm:text-base font-extrabold text-[#f8fafc]">1 Pet Potion</div>
+                        <div class="text-[10px] font-bold text-emerald-300/90">24x Speed Boost (Saves 23h per potion)</div>
+                    </div>
+                    <button type="button" onclick="triggerHaptic(15)" class="tactile w-10 h-10 rounded-lg bg-emerald-500/20 text-emerald-300 font-extrabold text-lg flex items-center justify-center border border-emerald-400/40">+</button>
+                </div>
+            </div>
+
+            <div class="builder-card accent-pet rounded-2xl p-4">
+                <div class="builder-header-sep flex flex-wrap items-center justify-between gap-2">
+                    <div class="flex flex-wrap items-center gap-2">
+                        <span class="slot-badge-goblin">[PET]</span>
+                        <span class="upgrade-title">Active Pet Upgrade</span>
+                    </div>
+                </div>
+                <p class="text-xs text-gray-300 leading-relaxed">Hero Pet upgrade timers and Pet Potion completion schedules are supported via Village JSON Import.</p>
             </div>
         </div>
     </div>
@@ -379,75 +558,155 @@
     </div>
 
     <script>
-        const COC_DATA_MAPPING = {
-            // CORE BUILDINGS & DEFENSES (1000000 series)
-            "1000000": "Army Camp",
-            "1000001": "Town Hall",
-            "1000002": "Elixir Collector",
-            "1000003": "Elixir Storage",
-            "1000004": "Gold Mine",
-            "1000005": "Gold Storage",
-            "1000006": "Barracks",
-            "1000007": "Laboratory",
-            "1000008": "Cannon",
-            "1000009": "Archer Tower",
-            "1000010": "Wall",
-            "1000011": "Wizard Tower",
-            "1000012": "Air Defense",
-            "1000013": "Mortar",
-            "1000014": "Clan Castle",
-            "1000015": "Builder's Hut",
-            "1000019": "Hidden Tesla",
-            "1000020": "Spell Factory",
-            "1000021": "X-Bow",
-            "1000023": "Dark Elixir Drill",
-            "1000024": "Dark Elixir Storage",
-            "1000026": "Dark Barracks",
-            "1000027": "Inferno Tower",
-            "1000028": "Air Sweeper",
-            "1000029": "Dark Spell Factory",
-            "1000031": "Eagle Artillery",
-            "1000032": "Bomb Tower",
-            "1000059": "Workshop",
-            "1000064": "B.O.B's Hut",
-            "1000067": "Scattershot",
-            "1000068": "Pet House",
-            "1000070": "Blacksmith",
-            "1000071": "Hero Hall",
-            "1000072": "Spell Tower",
-            "1000077": "Monolith",
-            "1000079": "Multi-Gear Tower",
-            "1000084": "Multi-Archer Tower",
-            "1000085": "Ricochet Cannon",
-            "1000086": "Revenge Tower",
-            "1000089": "Firespitter",
-            "1000093": "Helper Hut",
-            "1000097": "Crafting Station",
-            "1000102": "Super Wizard Tower",
+        const COC_NAMES = {
+            // Town Hall & Key Buildings
+            1000000: "Army Camp",
+            1000001: "Town Hall",
+            1000002: "Elixir Collector",
+            1000003: "Elixir Storage",
+            1000004: "Gold Mine",
+            1000005: "Gold Storage",
+            1000006: "Barracks",
+            1000007: "Laboratory",
+            1000008: "Cannon",
+            1000009: "Archer Tower",
+            1000010: "Wall",
+            1000011: "Wizard Tower",
+            1000012: "Air Defense",
+            1000013: "Mortar",
+            1000014: "Clan Castle",
+            1000015: "Builder's Hut",
+            1000019: "Hidden Tesla",
+            1000020: "Spell Factory",
+            1000021: "X-Bow",
+            1000023: "Dark Elixir Drill",
+            1000024: "Dark Elixir Storage",
+            1000026: "Dark Barracks",
+            1000027: "Inferno Tower",
+            1000028: "Air Sweeper",
+            1000029: "Dark Spell Factory",
+            1000031: "Eagle Artillery",
+            1000032: "Bomb Tower",
+            1000059: "Workshop",
+            1000064: "B.O.B's Hut",
+            1000067: "Scattershot",
+            1000068: "Pet House",
+            1000070: "Blacksmith",
+            1000071: "Hero Hall",
+            1000072: "Spell Tower",
+            1000077: "Monolith",
+            1000079: "Multi-Gear Tower",
+            1000084: "Multi-Archer Tower",
+            1000085: "Ricochet Cannon",
+            1000086: "Revenge Tower",
+            1000089: "Firespitter",
+            1000093: "Helper Hut",
+            1000097: "Crafting Station",
+            1000102: "Super Wizard Tower",
 
-            // TRAPS (12000000 series)
-            "12000000": "Bomb",
-            "12000001": "Spring Trap",
-            "12000002": "Giant Bomb",
-            "12000005": "Air Bomb",
-            "12000006": "Seeking Air Mine",
-            "12000008": "Skeleton Trap",
-            "12000016": "Tornado Trap",
-            "12000020": "Giga Bomb",
+            // Traps
+            12000000: "Bomb",
+            12000001: "Spring Trap",
+            12000002: "Giant Bomb",
+            12000005: "Air Bomb",
+            12000006: "Seeking Air Mine",
+            12000008: "Skeleton Trap",
+            12000016: "Tornado Trap",
+            12000020: "Giga Bomb",
 
-            // HEROES (28000000 series)
-            "28000000": "Barbarian King",
-            "28000001": "Archer Queen",
-            "28000002": "Grand Warden",
-            "28000004": "Royal Champion",
-            "28000006": "Minion Prince",
-            "28000007": "Dragon Duke",
+            // Heroes
+            28000000: "Barbarian King",
+            28000001: "Archer Queen",
+            28000002: "Grand Warden",
+            28000003: "Battle Machine",
+            28000004: "Royal Champion",
+            28000005: "Battle Copter",
+            28000006: "Minion Prince",
+            28000007: "Dragon Duke",
 
-            // HELPERS & ASSISTANTS
-            "93000000": "Builder's Apprentice",
-            "93000001": "Lab Assistant",
-            "93000002": "Prospector"
+            // Helpers & Assistants
+            93000000: "Builder's Apprentice",
+            93000001: "Lab Assistant",
+            93000002: "Prospector"
         };
+
+        Object.assign(COC_NAMES, {
+            // --- PETS (73000000 series) ---
+            73000000: "L.A.S.S.I",
+            73000001: "Mighty Yak",
+            73000002: "Electro Owl",
+            73000003: "Unicorn",
+            73000004: "Phoenix",
+            73000007: "Poison Lizard",
+            73000008: "Diggy",
+            73000009: "Frosty",
+            73000010: "Spirit Fox",
+            73000011: "Angry Jelly",
+            73000016: "Sneezy",
+            73000017: "Greedy Raven",
+
+            // --- TROOPS & SIEGE MACHINES (4000000 series) ---
+            4000000: "Barbarian",
+            4000001: "Archer",
+            4000002: "Goblin",
+            4000003: "Giant",
+            4000004: "Wall Breaker",
+            4000005: "Balloon",
+            4000006: "Wizard",
+            4000007: "Healer",
+            4000008: "Dragon",
+            4000009: "P.E.K.K.A",
+            4000010: "Minion",
+            4000011: "Hog Rider",
+            4000012: "Valkyrie",
+            4000013: "Golem",
+            4000015: "Witch",
+            4000017: "Lava Hound",
+            4000022: "Bowler",
+            4000023: "Baby Dragon",
+            4000024: "Miner",
+            4000051: "Wall Wrecker",
+            4000052: "Battle Blimp",
+            4000053: "Yeti",
+            4000058: "Ice Golem",
+            4000059: "Electro Dragon",
+            4000062: "Stone Slammer",
+            4000065: "Dragon Rider",
+            4000075: "Siege Barracks",
+            4000082: "Headhunter",
+            4000087: "Log Launcher",
+            4000091: "Flame Flinger",
+            4000092: "Battle Drill",
+            4000095: "Electro Titan",
+            4000097: "Apprentice Warden",
+            4000110: "Root Rider",
+            4000123: "Druid",
+            4000132: "Thrower",
+            4000135: "Troop Launcher",
+            4000150: "Furnace",
+            4000177: "Meteor Golem",
+            4000188: "Hydra",
+
+            // --- SPELLS (26000000 series) ---
+            26000000: "Lightning Spell",
+            26000001: "Healing Spell",
+            26000002: "Rage Spell",
+            26000003: "Jump Spell",
+            26000005: "Freeze Spell",
+            26000009: "Poison Spell",
+            26000010: "Earthquake Spell",
+            26000011: "Haste Spell",
+            26000016: "Clone Spell",
+            26000017: "Skeleton Spell",
+            26000028: "Bat Spell",
+            26000035: "Invisibility Spell",
+            26000053: "Recall Spell",
+            26000070: "Overgrowth Spell",
+            26000098: "Revive Spell",
+            26000109: "Ice Block Spell",
+            26000120: "Totem Spell",
+            26000123: "Aura Spell"
+        });
 
         const STORAGE_KEY = 'coc_builder_potion_saved_v2';
         let currentMode = 'single';
@@ -457,16 +716,44 @@
         let prevTickMap = {};
         let toastTimer = null;
 
-        function triggerHaptic(pattern = 12) {
+        function triggerHaptic(pattern = 15) {
             try {
                 if (navigator.vibrate) navigator.vibrate(pattern);
             } catch (e) {}
         }
 
+        function switchCategoryTab(tab) {
+            triggerHaptic(15);
+            const panels = {
+                builders: document.getElementById('tab-builders-panel'),
+                laboratory: document.getElementById('tab-lab-panel'),
+                pethouse: document.getElementById('tab-pet-panel')
+            };
+            const btns = {
+                builders: document.getElementById('seg-btn-builders'),
+                laboratory: document.getElementById('seg-btn-lab'),
+                pethouse: document.getElementById('seg-btn-pet')
+            };
+            const activeClasses = {
+                builders: 'seg-tab-builders-active',
+                laboratory: 'seg-tab-lab-active',
+                pethouse: 'seg-tab-pet-active'
+            };
+
+            Object.keys(panels).forEach((k) => {
+                if (k === tab) {
+                    panels[k].classList.remove('hidden');
+                    btns[k].className = `tactile ${activeClasses[k]} py-2.5 px-1.5 rounded-xl text-[11px] sm:text-xs font-extrabold transition-all flex items-center justify-center gap-1 cursor-pointer border`;
+                } else {
+                    panels[k].classList.add('hidden');
+                    btns[k].className = 'tactile border-transparent text-slate-400 py-2.5 px-1.5 rounded-xl text-[11px] sm:text-xs font-extrabold transition-all flex items-center justify-center gap-1 cursor-pointer border';
+                }
+            });
+        }
+
         function resolveUpgradeName(rawId) {
-            if (rawId === undefined || rawId === null) return "Defense / Building Upgrade";
-            const key = rawId.toString();
-            return COC_DATA_MAPPING[key] || "Defense / Building Upgrade";
+            if (rawId === undefined || rawId === null) return "Defense Upgrade";
+            return COC_NAMES[rawId] || COC_NAMES[Number(rawId)] || COC_NAMES[String(rawId)] || "Defense Upgrade";
         }
 
         function showToast(type, text) {
@@ -531,13 +818,15 @@
 
             regularItems.forEach((item, idx) => {
                 const timer = Math.max(0, Math.floor(item.timer || 0));
-                const rawIdStr = item.data !== undefined && item.data !== null ? item.data.toString() : undefined;
+                const itemData = item.data !== undefined ? item.data : item.id;
+                const rawIdStr = itemData !== undefined && itemData !== null ? String(itemData) : undefined;
+                const upgradeName = COC_NAMES[itemData] || COC_NAMES[Number(itemData)] || COC_NAMES[String(itemData)] || "Defense Upgrade";
                 buildersState[idx] = {
                     d: String(Math.floor(timer / 86400)),
                     h: String(Math.floor((timer % 86400) / 3600)),
                     m: String(Math.floor((timer % 3600) / 60)),
                     s: timer % 60,
-                    upgradeTitle: resolveUpgradeName(item.data),
+                    upgradeTitle: upgradeName,
                     upgradeLevel: typeof item.lvl === 'number' ? item.lvl : undefined,
                     rawId: rawIdStr
                 };
@@ -545,13 +834,15 @@
 
             if (goblinItem) {
                 const timer = Math.max(0, Math.floor(goblinItem.timer || 0));
-                const rawIdStr = goblinItem.data !== undefined && goblinItem.data !== null ? goblinItem.data.toString() : undefined;
+                const goblinData = goblinItem.data !== undefined ? goblinItem.data : goblinItem.id;
+                const rawIdStr = goblinData !== undefined && goblinData !== null ? String(goblinData) : undefined;
+                const upgradeName = COC_NAMES[goblinData] || COC_NAMES[Number(goblinData)] || COC_NAMES[String(goblinData)] || "Defense Upgrade";
                 buildersState[6] = {
                     d: String(Math.floor(timer / 86400)),
                     h: String(Math.floor((timer % 86400) / 3600)),
                     m: String(Math.floor((timer % 3600) / 60)),
                     s: timer % 60,
-                    upgradeTitle: resolveUpgradeName(goblinItem.data),
+                    upgradeTitle: upgradeName,
                     upgradeLevel: typeof goblinItem.lvl === 'number' ? goblinItem.lvl : undefined,
                     rawId: rawIdStr
                 };

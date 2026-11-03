@@ -11662,17 +11662,91 @@ var import_jsx_runtime = require_jsx_runtime();
 * @license
 * SPDX-License-Identifier: Apache-2.0
 */
+var COC_NAMES = {
+	1e6: "Army Camp",
+	1000001: "Town Hall",
+	1000002: "Elixir Collector",
+	1000003: "Elixir Storage",
+	1000004: "Gold Mine",
+	1000005: "Gold Storage",
+	1000006: "Barracks",
+	1000007: "Laboratory",
+	1000008: "Cannon",
+	1000009: "Archer Tower",
+	1000010: "Wall",
+	1000011: "Wizard Tower",
+	1000012: "Air Defense",
+	1000013: "Mortar",
+	1000014: "Clan Castle",
+	1000015: "Builder's Hut",
+	1000019: "Hidden Tesla",
+	1000020: "Spell Factory",
+	1000021: "X-Bow",
+	1000023: "Dark Elixir Drill",
+	1000024: "Dark Elixir Storage",
+	1000026: "Dark Barracks",
+	1000027: "Inferno Tower",
+	1000028: "Air Sweeper",
+	1000029: "Dark Spell Factory",
+	1000031: "Eagle Artillery",
+	1000032: "Bomb Tower",
+	1000059: "Workshop",
+	1000064: "B.O.B's Hut",
+	1000067: "Scattershot",
+	1000068: "Pet House",
+	1000070: "Blacksmith",
+	1000071: "Hero Hall",
+	1000072: "Spell Tower",
+	1000077: "Monolith",
+	1000079: "Multi-Gear Tower",
+	1000084: "Multi-Archer Tower",
+	1000085: "Ricochet Cannon",
+	1000086: "Revenge Tower",
+	1000089: "Firespitter",
+	1000093: "Helper Hut",
+	1000097: "Crafting Station",
+	1000102: "Super Wizard Tower",
+	12e6: "Bomb",
+	12000001: "Spring Trap",
+	12000002: "Giant Bomb",
+	12000005: "Air Bomb",
+	12000006: "Seeking Air Mine",
+	12000008: "Skeleton Trap",
+	12000016: "Tornado Trap",
+	12000020: "Giga Bomb",
+	28e6: "Barbarian King",
+	28000001: "Archer Queen",
+	28000002: "Grand Warden",
+	28000003: "Battle Machine",
+	28000004: "Royal Champion",
+	28000005: "Battle Copter",
+	28000006: "Minion Prince",
+	28000007: "Dragon Duke",
+	93e6: "Builder's Apprentice",
+	93000001: "Lab Assistant",
+	93000002: "Prospector"
+};
 var STORAGE_KEY = "coc_builder_potion_saved_v2";
 var LEGACY_STORAGE_KEY = "coc_builder_potion_saved_v1";
 var DEFAULT_BUILDERS = Array.from({ length: 7 }, () => ({
 	d: "",
 	h: "",
-	m: ""
+	m: "",
+	s: 0,
+	upgradeTitle: void 0,
+	upgradeLevel: void 0,
+	rawId: void 0
 }));
 function triggerHaptic(pattern = 12) {
 	try {
 		if (typeof navigator !== "undefined" && typeof navigator.vibrate === "function") navigator.vibrate(pattern);
 	} catch {}
+}
+function resolveUpgradeName(rawData) {
+	if (rawData === void 0 || rawData === null) return "Defense Upgrade";
+	const strKey = String(rawData).trim();
+	const numKey = Number(strKey);
+	return COC_NAMES[rawData] || COC_NAMES[numKey] || COC_NAMES[strKey] || "Defense Upgrade";
 }
 function loadSavedState() {
 	try {
@@ -11686,17 +11760,42 @@ function loadSavedState() {
 			lockedSavedText: ""
 		};
 		const parsed = JSON.parse(raw);
-		const builders = Array.from({ length: 7 }, (_, idx) => ({
-			d: parsed.builders?.[idx]?.d ?? "",
-			h: parsed.builders?.[idx]?.h ?? "",
-			m: parsed.builders?.[idx]?.m ?? ""
-		}));
+		const builders = Array.from({ length: 7 }, (_, idx) => {
+			const savedB = parsed.builders?.[idx];
+			const rawId = savedB?.rawId !== void 0 && savedB?.rawId !== null ? String(savedB.rawId) : void 0;
+			const reResolvedTitle = rawId ? resolveUpgradeName(rawId) : void 0;
+			return {
+				d: savedB?.d ?? "",
+				h: savedB?.h ?? "",
+				m: savedB?.m ?? "",
+				s: savedB?.s ?? 0,
+				upgradeTitle: reResolvedTitle && reResolvedTitle !== "Defense Upgrade" ? reResolvedTitle : savedB?.upgradeTitle ?? savedB?.customLabel,
+				upgradeLevel: typeof savedB?.upgradeLevel === "number" ? savedB.upgradeLevel : void 0,
+				rawId
+			};
+		});
+		const normalizedResults = Array.isArray(parsed.lockedResults) ? parsed.lockedResults.map((item, idx) => {
+			const bIdx = typeof item.builderIndex === "number" ? item.builderIndex : idx;
+			const isGoblin = !!item.isGoblin || bIdx === 6;
+			const rawId = item.rawId !== void 0 && item.rawId !== null ? String(item.rawId) : builders[bIdx]?.rawId;
+			const reResolvedTitle = rawId ? resolveUpgradeName(rawId) : void 0;
+			return {
+				builderIndex: bIdx,
+				slotBadge: item.slotBadge || (isGoblin ? "[GOBLIN]" : `[B${bIdx + 1}]`),
+				upgradeTitle: reResolvedTitle && reResolvedTitle !== "Defense Upgrade" ? reResolvedTitle : item.upgradeTitle || item.builderLabel || (isGoblin ? "Goblin Builder" : `Builder ${bIdx + 1}`),
+				upgradeLevel: typeof item.upgradeLevel === "number" ? item.upgradeLevel : void 0,
+				rawId,
+				isGoblin,
+				targetTimestamp: item.targetTimestamp,
+				formattedDate: item.formattedDate
+			};
+		}) : [];
 		return {
 			mode: parsed.mode === "multi" ? "multi" : "single",
 			numBuilders: typeof parsed.numBuilders === "number" && parsed.numBuilders >= 1 && parsed.numBuilders <= 7 ? parsed.numBuilders : 2,
 			builders,
 			potions: typeof parsed.potions === "string" ? parsed.potions : "",
-			lockedResults: Array.isArray(parsed.lockedResults) ? parsed.lockedResults : [],
+			lockedResults: normalizedResults,
 			lockedSavedText: typeof parsed.lockedSavedText === "string" ? parsed.lockedSavedText : ""
 		};
 	} catch {
@@ -11886,6 +11985,20 @@ function App() {
 	const [savedText, setSavedText] = (0, import_react.useState)(initial.lockedSavedText || "");
 	const [showResult, setShowResult] = (0, import_react.useState)(() => (initial.lockedResults?.length ?? 0) > 0);
 	const [animKey, setAnimKey] = (0, import_react.useState)(0);
+	const [isImportModalOpen, setIsImportModalOpen] = (0, import_react.useState)(false);
+	const [jsonInputText, setJsonInputText] = (0, import_react.useState)("");
+	const [toast, setToast] = (0, import_react.useState)(null);
+	const showToast = (type, text) => {
+		const id = Date.now();
+		setToast({
+			id,
+			type,
+			text
+		});
+		window.setTimeout(() => {
+			setToast((prev) => prev?.id === id ? null : prev);
+		}, 3500);
+	};
 	(0, import_react.useEffect)(() => {
 		try {
 			const stateToSave = {
@@ -11942,7 +12055,8 @@ function App() {
 				const next = [...prev];
 				next[index] = {
 					...next[index],
-					[field]: ""
+					[field]: "",
+					s: 0
 				};
 				return next;
 			});
@@ -11956,7 +12070,8 @@ function App() {
 			const next = [...prev];
 			next[index] = {
 				...next[index],
-				[field]: String(num)
+				[field]: String(num),
+				s: 0
 			};
 			return next;
 		});
@@ -11978,9 +12093,11 @@ function App() {
 			const newH = totalHours % 24;
 			const newD = Math.min(999, curD + deltaDays + extraDaysFromHours);
 			next[index] = {
+				...current,
 				d: newD > 0 ? String(newD) : current.d !== "" ? "0" : "",
 				h: newH > 0 ? String(newH) : deltaHours > 0 || current.h !== "" ? String(newH) : "",
-				m: curM > 0 ? String(curM) : current.m
+				m: curM > 0 ? String(curM) : current.m,
+				s: 0
 			};
 			return next;
 		});
@@ -12005,7 +12122,11 @@ function App() {
 		setBuilders(Array.from({ length: 7 }, () => ({
 			d: "",
 			h: "",
-			m: ""
+			m: "",
+			s: 0,
+			upgradeTitle: void 0,
+			upgradeLevel: void 0,
+			rawId: void 0
 		})));
 		setLockedResults([]);
 		setSavedText("");
@@ -12018,7 +12139,11 @@ function App() {
 			next[index] = {
 				d: "",
 				h: "",
-				m: ""
+				m: "",
+				s: 0,
+				upgradeTitle: void 0,
+				upgradeLevel: void 0,
+				rawId: void 0
 			};
 			return next;
 		});
@@ -12034,18 +12159,19 @@ function App() {
 		setSavedText("");
 		setShowResult(false);
 	};
-	const calculateTime = () => {
-		triggerHaptic(18);
-		const potions = Math.max(0, parseInt(potionsInput, 10) || 0);
-		const activeBuildersCount = currentMode === "single" ? 1 : numBuilders;
+	const runCalculationWithData = (targetMode, targetNumBuilders, targetBuilders, targetPotionsStr) => {
+		const potions = Math.max(0, parseInt(targetPotionsStr, 10) || 0);
+		const activeBuildersCount = targetMode === "single" ? 1 : targetNumBuilders;
 		const calcTimestamp = Date.now();
 		const computedResults = [];
 		for (let i = 1; i <= activeBuildersCount; i++) {
-			const b = builders[i - 1];
+			const b = targetBuilders[i - 1];
+			if (!b) continue;
 			const d = Math.max(0, parseInt(b.d, 10) || 0);
 			const h = Math.min(24, Math.max(0, parseInt(b.h, 10) || 0));
 			const m = Math.min(60, Math.max(0, parseInt(b.m, 10) || 0));
-			const totalBuilderHours = d * 24 + h + m / 60;
+			const s = Math.max(0, b.s || 0);
+			const totalBuilderHours = d * 24 + h + m / 60 + s / 3600;
 			if (totalBuilderHours === 0) continue;
 			const realTimeHours = calcRealTime(totalBuilderHours, potions);
 			const targetTimestamp = calcTimestamp + Math.round(realTimeHours * 3600 * 1e3);
@@ -12056,11 +12182,17 @@ function App() {
 				minute: "2-digit",
 				hour12: true
 			});
-			const isGoblin = currentMode === "multi" && i === 7;
-			const builderLabel = currentMode === "single" ? "Upgrade" : isGoblin ? "Goblin Builder" : `Builder ${i}`;
+			const isGoblin = targetMode === "multi" && i === 7;
+			const slotBadge = isGoblin ? "[GOBLIN]" : `[B${i}]`;
+			const defaultTitle = targetMode === "single" ? "Defense Upgrade" : isGoblin ? "Goblin Builder" : `Builder ${i} Upgrade`;
+			const resolvedFromId = b.rawId ? resolveUpgradeName(b.rawId) : void 0;
+			const finalTitle = resolvedFromId && resolvedFromId !== "Defense Upgrade" ? resolvedFromId : b.upgradeTitle && b.upgradeTitle !== "Defense / Building Upgrade" ? b.upgradeTitle : resolvedFromId || defaultTitle;
 			computedResults.push({
 				builderIndex: i - 1,
-				builderLabel,
+				slotBadge,
+				upgradeTitle: finalTitle,
+				upgradeLevel: b.upgradeLevel,
+				rawId: b.rawId,
 				isGoblin,
 				targetTimestamp,
 				formattedDate
@@ -12084,123 +12216,458 @@ function App() {
 			setShowResult(true);
 		});
 	};
+	const calculateTime = () => {
+		triggerHaptic(18);
+		runCalculationWithData(currentMode, numBuilders, builders, potionsInput);
+	};
+	const handleImportVillageJson = () => {
+		triggerHaptic(15);
+		const trimmed = jsonInputText.trim();
+		if (!trimmed) {
+			showToast("error", "Invalid JSON format");
+			return;
+		}
+		let parsedData;
+		try {
+			parsedData = JSON.parse(trimmed);
+			if (!parsedData || typeof parsedData !== "object" || Array.isArray(parsedData)) {
+				showToast("error", "Invalid JSON format");
+				return;
+			}
+		} catch {
+			showToast("error", "Invalid JSON format");
+			return;
+		}
+		const activeUpgrades = [
+			...Array.isArray(parsedData.buildings) ? parsedData.buildings : [],
+			...Array.isArray(parsedData.traps) ? parsedData.traps : [],
+			...Array.isArray(parsedData.heroes) ? parsedData.heroes : []
+		].filter((item) => item && typeof item.timer === "number" && item.timer > 0);
+		if (activeUpgrades.length === 0) {
+			showToast("error", "No active Home Village upgrades found");
+			return;
+		}
+		const goblinItem = activeUpgrades.find((item) => item.extra === true);
+		const regularItems = activeUpgrades.filter((item) => item.extra !== true).slice(0, 6);
+		const nextBuilders = Array.from({ length: 7 }, () => ({
+			d: "",
+			h: "",
+			m: "",
+			s: 0,
+			upgradeTitle: void 0,
+			upgradeLevel: void 0,
+			rawId: void 0
+		}));
+		regularItems.forEach((item, idx) => {
+			const timer = Math.max(0, Math.floor(item.timer || 0));
+			const days = Math.floor(timer / 86400);
+			const hours = Math.floor(timer % 86400 / 3600);
+			const mins = Math.floor(timer % 3600 / 60);
+			const secs = timer % 60;
+			const itemData = item.data ?? item.id;
+			const rawIdStr = itemData !== void 0 && itemData !== null ? String(itemData) : void 0;
+			const upgradeName = itemData !== void 0 && (COC_NAMES[itemData] || COC_NAMES[Number(itemData)] || COC_NAMES[String(itemData)]) || "Defense Upgrade";
+			nextBuilders[idx] = {
+				d: String(days),
+				h: String(hours),
+				m: String(mins),
+				s: secs,
+				upgradeTitle: upgradeName,
+				upgradeLevel: typeof item.lvl === "number" ? item.lvl : void 0,
+				rawId: rawIdStr
+			};
+		});
+		if (goblinItem) {
+			const timer = Math.max(0, Math.floor(goblinItem.timer || 0));
+			const days = Math.floor(timer / 86400);
+			const hours = Math.floor(timer % 86400 / 3600);
+			const mins = Math.floor(timer % 3600 / 60);
+			const secs = timer % 60;
+			const goblinData = goblinItem.data ?? goblinItem.id;
+			const rawIdStr = goblinData !== void 0 && goblinData !== null ? String(goblinData) : void 0;
+			const upgradeName = goblinData !== void 0 && (COC_NAMES[goblinData] || COC_NAMES[Number(goblinData)] || COC_NAMES[String(goblinData)]) || "Defense Upgrade";
+			nextBuilders[6] = {
+				d: String(days),
+				h: String(hours),
+				m: String(mins),
+				s: secs,
+				upgradeTitle: upgradeName,
+				upgradeLevel: typeof goblinItem.lvl === "number" ? goblinItem.lvl : void 0,
+				rawId: rawIdStr
+			};
+		}
+		const totalLoadedCount = regularItems.length + (goblinItem ? 1 : 0);
+		const nextBuilderSliderCount = goblinItem ? 7 : Math.max(1, Math.min(6, regularItems.length));
+		setCurrentMode("multi");
+		setNumBuilders(nextBuilderSliderCount);
+		setBuilders(nextBuilders);
+		setIsImportModalOpen(false);
+		setJsonInputText("");
+		runCalculationWithData("multi", nextBuilderSliderCount, nextBuilders, potionsInput);
+		showToast("success", `Loaded ${totalLoadedCount} active builders!`);
+	};
 	const activeBuildersToRender = currentMode === "single" ? 1 : numBuilders;
-	return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+	const soonestTargetTimestamp = lockedResults.length > 0 ? Math.min(...lockedResults.map((r) => r.targetTimestamp)) : null;
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 		className: "min-h-dvh w-full flex flex-col items-center justify-center p-3 sm:p-6 overflow-y-auto overflow-x-hidden",
-		children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-			className: "glass-card w-full max-w-md rounded-3xl p-5 sm:p-8 relative overflow-hidden my-auto",
-			children: [
-				/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "absolute -top-10 -right-10 w-32 h-32 bg-pink-500 rounded-full mix-blend-screen filter blur-[50px] opacity-40 pointer-events-none" }),
-				/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "absolute -bottom-10 -left-10 w-32 h-32 bg-yellow-500 rounded-full mix-blend-screen filter blur-[50px] opacity-30 pointer-events-none" }),
-				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-					className: "text-center mb-6 relative z-10",
-					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("h1", {
-						className: "text-2xl sm:text-3xl font-bold tracking-wide",
-						children: ["Builder ", /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-							className: "text-elixir",
-							children: "Potion"
+		children: [
+			toast && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+				className: `fixed top-4 left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 rounded-2xl font-extrabold text-xs sm:text-sm shadow-2xl border flex items-center gap-2 transition-all ${toast.type === "success" ? "bg-emerald-950/95 text-[#22c55e] border-emerald-400/50 shadow-emerald-500/20" : "bg-rose-950/95 text-rose-300 border-rose-400/50 shadow-rose-500/20"}`,
+				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: toast.type === "success" ? "✅" : "⚠️" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: toast.text })]
+			}),
+			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+				className: "glass-card w-full max-w-md rounded-3xl p-5 sm:p-8 relative overflow-hidden my-auto",
+				children: [
+					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "absolute -top-10 -right-10 w-32 h-32 bg-pink-500 rounded-full mix-blend-screen filter blur-[50px] opacity-40 pointer-events-none" }),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "absolute -bottom-10 -left-10 w-32 h-32 bg-yellow-500 rounded-full mix-blend-screen filter blur-[50px] opacity-30 pointer-events-none" }),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						className: "text-center mb-5 relative z-10",
+						children: [
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("h1", {
+								className: "text-2xl sm:text-3xl font-bold tracking-wide",
+								children: ["Builder ", /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+									className: "text-elixir",
+									children: "Potion"
+								})]
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+								className: "text-gray-300 text-sm mt-1 uppercase tracking-widest text-gold text-xs font-semibold",
+								children: "Hammer Jam Calculator"
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+								className: "mt-3.5 flex justify-center",
+								children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+									type: "button",
+									onClick: () => {
+										triggerHaptic(15);
+										setIsImportModalOpen(true);
+									},
+									className: "tactile inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-extrabold text-[#f8fafc] bg-gradient-to-r from-amber-500/20 via-pink-500/20 to-purple-500/20 hover:from-amber-500/30 hover:to-purple-500/30 border border-amber-400/50 shadow-[0_0_15px_rgba(251,191,36,0.25)] cursor-pointer",
+									children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "📥 Import CoC JSON" })
+								})
+							})
+						]
+					}),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						className: "flex bg-black/40 rounded-xl p-1 mb-6 border border-white/10 relative z-10",
+						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+							id: "btn-mode-single",
+							type: "button",
+							onClick: () => setMode("single"),
+							className: `tactile flex-1 py-2.5 text-sm font-bold rounded-lg transition-all cursor-pointer ${currentMode === "single" ? "bg-white/20 text-white shadow-sm" : "text-gray-300 hover:text-white"}`,
+							children: "Single Builder"
+						}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+							id: "btn-mode-multi",
+							type: "button",
+							onClick: () => setMode("multi"),
+							className: `tactile flex-1 py-2.5 text-sm font-bold rounded-lg transition-all cursor-pointer ${currentMode === "multi" ? "bg-white/20 text-white shadow-sm" : "text-gray-300 hover:text-white"}`,
+							children: "All Builders"
 						})]
-					}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
-						className: "text-gray-300 text-sm mt-1 uppercase tracking-widest text-gold text-xs font-semibold",
-						children: "Hammer Jam Calculator"
-					})]
-				}),
-				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-					className: "flex bg-black/40 rounded-xl p-1 mb-6 border border-white/10 relative z-10",
-					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-						id: "btn-mode-single",
-						type: "button",
-						onClick: () => setMode("single"),
-						className: `tactile flex-1 py-2.5 text-sm font-bold rounded-lg transition-all cursor-pointer ${currentMode === "single" ? "bg-white/20 text-white shadow-sm" : "text-gray-300 hover:text-white"}`,
-						children: "Single Builder"
-					}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-						id: "btn-mode-multi",
-						type: "button",
-						onClick: () => setMode("multi"),
-						className: `tactile flex-1 py-2.5 text-sm font-bold rounded-lg transition-all cursor-pointer ${currentMode === "multi" ? "bg-white/20 text-white shadow-sm" : "text-gray-300 hover:text-white"}`,
-						children: "All Builders"
-					})]
-				}),
-				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-					className: "space-y-6 relative z-10",
-					children: [
-						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-							id: "multi-builders-config",
-							className: `${currentMode === "single" ? "hidden" : ""} bg-black/30 p-4 rounded-2xl border border-white/10`,
-							children: [
-								/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-									className: "flex justify-between items-center mb-3",
-									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", {
-										className: "text-base text-[#f8fafc] font-bold",
-										children: "Active Builders"
-									}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-										className: "flex items-center gap-2",
+					}),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						className: "space-y-6 relative z-10",
+						children: [
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								id: "multi-builders-config",
+								className: `${currentMode === "single" ? "hidden" : ""} bg-black/30 p-4 rounded-2xl border border-white/10`,
+								children: [
+									/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+										className: "flex justify-between items-center mb-3",
+										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", {
+											className: "text-base text-[#f8fafc] font-bold",
+											children: "Active Builders"
+										}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+											className: "flex items-center gap-2",
+											children: [
+												/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+													type: "button",
+													onClick: () => handleBuilderCountChange(numBuilders - 1),
+													className: "tactile w-7 h-7 rounded-lg bg-white/10 hover:bg-white/20 text-white font-bold flex items-center justify-center cursor-pointer border border-white/10",
+													"aria-label": "Decrease builders",
+													children: "−"
+												}),
+												/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+													className: `font-extrabold bg-black/50 px-3 py-1 rounded-lg shadow-inner border ${numBuilders === 7 ? "text-[#22c55e] border-emerald-500/40" : "text-[#fbbf24] border-amber-400/20"}`,
+													children: [
+														/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+															id: "builders-count-label",
+															children: numBuilders
+														}),
+														" ",
+														numBuilders === 7 ? "👺" : "👷"
+													]
+												}),
+												/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+													type: "button",
+													onClick: () => handleBuilderCountChange(numBuilders + 1),
+													className: "tactile w-7 h-7 rounded-lg bg-white/10 hover:bg-white/20 text-white font-bold flex items-center justify-center cursor-pointer border border-white/10",
+													"aria-label": "Increase builders",
+													children: "+"
+												})
+											]
+										})]
+									}),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+										type: "range",
+										id: "input-builders",
+										min: "1",
+										max: "7",
+										value: numBuilders,
+										onChange: (e) => handleBuilderCountChange(parseInt(e.target.value, 10)),
+										className: "w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-[#EC4899]"
+									}),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+										className: "flex justify-between text-[11px] font-semibold text-gray-300 mt-2 px-0.5",
 										children: [
-											/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-												type: "button",
-												onClick: () => handleBuilderCountChange(numBuilders - 1),
-												className: "tactile w-7 h-7 rounded-lg bg-white/10 hover:bg-white/20 text-white font-bold flex items-center justify-center cursor-pointer border border-white/10",
-												"aria-label": "Decrease builders",
-												children: "−"
-											}),
-											/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-												className: `font-extrabold bg-black/50 px-3 py-1 rounded-lg shadow-inner border ${numBuilders === 7 ? "text-[#22c55e] border-emerald-500/40" : "text-[#fbbf24] border-amber-400/20"}`,
-												children: [
-													/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-														id: "builders-count-label",
-														children: numBuilders
-													}),
-													" ",
-													numBuilders === 7 ? "👺" : "👷"
-												]
-											}),
-											/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-												type: "button",
-												onClick: () => handleBuilderCountChange(numBuilders + 1),
-												className: "tactile w-7 h-7 rounded-lg bg-white/10 hover:bg-white/20 text-white font-bold flex items-center justify-center cursor-pointer border border-white/10",
-												"aria-label": "Increase builders",
-												children: "+"
+											/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "1 Builder" }),
+											/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "6 Builders" }),
+											/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+												className: numBuilders === 7 ? "text-[#22c55e] font-bold" : "text-emerald-400/80",
+												children: "7: Goblin 👺"
 											})
 										]
+									})
+								]
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								id: "time-inputs-container",
+								className: "space-y-4",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+									className: "flex items-center justify-between",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+										className: "text-xs uppercase tracking-wider text-[#fbbf24] font-extrabold",
+										children: "Upgrade Timers"
+									}), builders.slice(0, activeBuildersToRender).some((b) => b.d || b.h || b.m) && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+										type: "button",
+										onClick: resetAllTimes,
+										className: "tactile text-xs font-bold text-elixir hover:text-pink-300 transition flex items-center gap-1 cursor-pointer bg-pink-500/15 hover:bg-pink-500/25 px-2.5 py-1 rounded-lg border border-pink-500/30",
+										title: "Reset all days, hours, and minutes",
+										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("svg", {
+											className: "w-3.5 h-3.5",
+											fill: "none",
+											stroke: "currentColor",
+											viewBox: "0 0 24 24",
+											children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", {
+												strokeLinecap: "round",
+												strokeLinejoin: "round",
+												strokeWidth: "2",
+												d: "M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+											})
+										}), "Reset All"]
 									})]
-								}),
-								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-									type: "range",
-									id: "input-builders",
-									min: "1",
-									max: "7",
-									value: numBuilders,
-									onChange: (e) => handleBuilderCountChange(parseInt(e.target.value, 10)),
-									className: "w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-[#EC4899]"
-								}),
-								/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-									className: "flex justify-between text-[11px] font-semibold text-gray-300 mt-2 px-0.5",
+								}), Array.from({ length: activeBuildersToRender }, (_, idx) => {
+									const i = idx + 1;
+									const isGoblin = currentMode === "multi" && i === 7;
+									const builderVal = builders[idx] || {
+										d: "",
+										h: "",
+										m: ""
+									};
+									const isHero = !isGoblin && !!builderVal.rawId?.startsWith("28");
+									const slotBadgeText = isGoblin ? "[GOBLIN]" : `[B${i}]`;
+									const defaultTitle = currentMode === "single" ? "Remaining Time" : isGoblin ? "Goblin Builder" : `Builder ${i}`;
+									const displayTitle = builderVal.upgradeTitle || defaultTitle;
+									const accentClass = isGoblin ? "goblin-card accent-goblin" : isHero ? "builder-card accent-hero" : "builder-card accent-gold";
+									const badgeClass = isGoblin ? "slot-badge-goblin" : isHero ? "slot-badge-hero" : "slot-badge-regular";
+									const hasThisBuilderTime = !!(builderVal.d || builderVal.h || builderVal.m || builderVal.upgradeTitle);
+									return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+										className: `rounded-2xl p-4 ${accentClass}`,
+										children: [
+											/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+												className: "builder-header-sep flex flex-wrap justify-between items-center gap-2",
+												children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+													className: "flex flex-wrap items-center gap-2",
+													children: [
+														/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+															className: badgeClass,
+															children: slotBadgeText
+														}),
+														/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+															className: "upgrade-title",
+															children: displayTitle
+														}),
+														typeof builderVal.upgradeLevel === "number" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+															className: isGoblin ? "lvl-chip-goblin" : "lvl-chip",
+															children: ["LVL ", builderVal.upgradeLevel]
+														})
+													]
+												}), hasThisBuilderTime && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+													type: "button",
+													onClick: () => resetBuilderTime(idx),
+													className: "tactile text-xs font-bold text-gray-200 hover:text-elixir transition flex items-center gap-1 px-2 py-0.5 rounded-md bg-white/10 hover:bg-white/15 cursor-pointer",
+													title: "Clear this builder's time",
+													children: "✕ Clear"
+												})]
+											}),
+											/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+												className: "grid grid-cols-3 gap-3",
+												children: [
+													/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+														className: "flex flex-col",
+														children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+															type: "number",
+															id: `input-d-${i}`,
+															inputMode: "numeric",
+															value: builderVal.d,
+															onChange: (e) => handleBuilderTimeChange(idx, "d", e.target.value),
+															placeholder: "0",
+															min: "0",
+															max: "999",
+															className: `glass-input ${isGoblin ? "goblin-input" : ""} w-full rounded-xl py-3 px-2 text-center text-xl font-bold placeholder-gray-500`
+														}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+															className: "text-xs font-semibold text-gray-200 text-center mt-1",
+															children: "Days"
+														})]
+													}),
+													/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+														className: "flex flex-col",
+														children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+															type: "number",
+															id: `input-h-${i}`,
+															inputMode: "numeric",
+															value: builderVal.h,
+															onChange: (e) => handleBuilderTimeChange(idx, "h", e.target.value),
+															placeholder: "0",
+															min: "0",
+															max: "24",
+															className: `glass-input ${isGoblin ? "goblin-input" : ""} w-full rounded-xl py-3 px-2 text-center text-xl font-bold placeholder-gray-500`
+														}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+															className: "text-xs font-semibold text-gray-200 text-center mt-1",
+															children: "Hours"
+														})]
+													}),
+													/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+														className: "flex flex-col",
+														children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+															type: "number",
+															id: `input-m-${i}`,
+															inputMode: "numeric",
+															value: builderVal.m,
+															onChange: (e) => handleBuilderTimeChange(idx, "m", e.target.value),
+															placeholder: "0",
+															min: "0",
+															max: "60",
+															className: `glass-input ${isGoblin ? "goblin-input" : ""} w-full rounded-xl py-3 px-2 text-center text-xl font-bold placeholder-gray-500`
+														}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+															className: "text-xs font-semibold text-gray-200 text-center mt-1",
+															children: "Mins"
+														})]
+													})
+												]
+											}),
+											/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+												className: "flex flex-wrap items-center gap-1.5 mt-3 pt-2.5 border-t border-white/10",
+												children: [[
+													{
+														label: "+6h",
+														d: 0,
+														h: 6
+													},
+													{
+														label: "+12h",
+														d: 0,
+														h: 12
+													},
+													{
+														label: "+1d",
+														d: 1,
+														h: 0
+													},
+													{
+														label: "+3d",
+														d: 3,
+														h: 0
+													},
+													{
+														label: "+5d",
+														d: 5,
+														h: 0
+													},
+													{
+														label: "+7d",
+														d: 7,
+														h: 0
+													}
+												].map((preset) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+													type: "button",
+													onClick: () => applyPresetToBuilder(idx, preset.d, preset.h),
+													className: `tactile text-xs font-bold px-2.5 py-1 rounded-lg border cursor-pointer ${isGoblin ? "bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-200 border-emerald-500/30" : "bg-white/10 hover:bg-white/20 text-[#f8fafc] border-white/15"}`,
+													children: preset.label
+												}, preset.label)), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+													type: "button",
+													onClick: () => resetBuilderTime(idx),
+													className: "tactile text-xs font-bold px-2.5 py-1 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 ml-auto cursor-pointer",
+													children: "Clear"
+												})]
+											})
+										]
+									}, i);
+								})]
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "builder-card rounded-2xl p-4",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
+									className: "block text-base text-[#f8fafc] mb-2.5 font-extrabold flex justify-between items-center",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+										className: "flex items-center gap-2",
+										children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "🧪 Potions Used" })
+									}), potionsInput && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+										type: "button",
+										onClick: () => {
+											triggerHaptic();
+											setPotionsInput("");
+										},
+										className: "tactile text-xs font-bold text-gray-300 hover:text-elixir transition cursor-pointer bg-white/10 px-2 py-0.5 rounded-md",
+										children: "Clear"
+									})]
+								}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+									className: "flex items-center gap-2.5",
 									children: [
-										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "1 Builder" }),
-										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "6 Builders" }),
-										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-											className: numBuilders === 7 ? "text-[#22c55e] font-bold" : "text-emerald-400/80",
-											children: "7: Goblin 👺"
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+											type: "button",
+											onClick: () => adjustPotions(-1),
+											className: "tactile glass-input w-12 h-12 rounded-xl text-xl font-extrabold text-white hover:bg-white/15 flex items-center justify-center cursor-pointer",
+											"aria-label": "Decrease potions",
+											children: "−"
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+											className: "relative flex-1",
+											children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+												type: "number",
+												id: "input-potions",
+												inputMode: "numeric",
+												value: potionsInput,
+												onChange: (e) => handlePotionsChange(e.target.value),
+												placeholder: "0",
+												min: "0",
+												max: "999",
+												className: "glass-input w-full rounded-xl py-3 px-3 text-center text-xl font-extrabold placeholder-gray-500"
+											})
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+											type: "button",
+											onClick: () => adjustPotions(1),
+											className: "tactile glass-input w-12 h-12 rounded-xl text-xl font-extrabold text-[#fbbf24] hover:bg-white/15 flex items-center justify-center cursor-pointer",
+											"aria-label": "Increase potions",
+											children: "+"
 										})
 									]
-								})
-							]
-						}),
-						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-							id: "time-inputs-container",
-							className: "space-y-4",
-							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-								className: "flex items-center justify-between",
-								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-									className: "text-xs uppercase tracking-wider text-[#fbbf24] font-extrabold",
-									children: "Upgrade Timers"
-								}), builders.slice(0, activeBuildersToRender).some((b) => b.d || b.h || b.m) && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+								})]
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "flex gap-2.5 mt-4",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+									type: "button",
+									onClick: calculateTime,
+									className: "btn-calculate tactile flex-1 text-white font-bold text-lg rounded-xl py-4 tracking-wide shadow-lg cursor-pointer",
+									children: "Calculate Finish Time"
+								}), (builders.slice(0, activeBuildersToRender).some((b) => b.d || b.h || b.m) || lockedResults.length > 0) && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
 									type: "button",
 									onClick: resetAllTimes,
-									className: "tactile text-xs font-bold text-elixir hover:text-pink-300 transition flex items-center gap-1 cursor-pointer bg-pink-500/15 hover:bg-pink-500/25 px-2.5 py-1 rounded-lg border border-pink-500/30",
+									className: "tactile glass-input hover:border-pink-500/50 hover:bg-pink-500/10 text-gray-200 hover:text-white px-4 rounded-xl flex flex-col items-center justify-center gap-0.5 transition cursor-pointer",
 									title: "Reset all days, hours, and minutes",
 									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("svg", {
-										className: "w-3.5 h-3.5",
+										className: "w-5 h-5 text-gray-200",
 										fill: "none",
 										stroke: "currentColor",
 										viewBox: "0 0 24 24",
@@ -12210,292 +12677,183 @@ function App() {
 											strokeWidth: "2",
 											d: "M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
 										})
-									}), "Reset All"]
+									}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+										className: "text-[10px] font-bold uppercase tracking-wider text-gray-200",
+										children: "Reset"
+									})]
 								})]
-							}), Array.from({ length: activeBuildersToRender }, (_, idx) => {
-								const i = idx + 1;
-								const isGoblin = currentMode === "multi" && i === 7;
-								const label = currentMode === "single" ? "Remaining Upgrade Time" : isGoblin ? "Goblin Builder" : `Builder ${i} Remaining Time`;
-								const badgeText = currentMode === "single" ? "UPGRADE" : isGoblin ? "GOBLIN BUILDER" : `BUILDER #${i}`;
-								const builderVal = builders[idx] || {
-									d: "",
-									h: "",
-									m: ""
-								};
-								const hasThisBuilderTime = !!(builderVal.d || builderVal.h || builderVal.m);
-								return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-									className: `rounded-2xl p-4 ${isGoblin ? "goblin-card" : "builder-card"}`,
-									children: [
-										/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-											className: "flex flex-wrap justify-between items-center gap-2 mb-3",
-											children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-												className: "flex items-center gap-2",
-												children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
-													className: `text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-md border ${isGoblin ? "bg-emerald-500/20 text-[#22c55e] border-emerald-400/50" : "bg-amber-500/20 text-[#fbbf24] border-amber-400/40"}`,
-													children: [
-														"[",
-														badgeText,
-														"]"
-													]
-												}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
-													className: `text-base font-extrabold tracking-tight ${isGoblin ? "text-[#22c55e]" : "text-[#f8fafc]"}`,
-													children: [
-														label,
-														" ",
-														isGoblin ? "👺" : ""
-													]
-												})]
-											}), hasThisBuilderTime && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-												type: "button",
-												onClick: () => resetBuilderTime(idx),
-												className: "tactile text-xs font-bold text-gray-200 hover:text-elixir transition flex items-center gap-1 px-2 py-0.5 rounded-md bg-white/10 hover:bg-white/15 cursor-pointer",
-												title: "Clear this builder's time",
-												children: "✕ Clear"
-											})]
-										}),
-										/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-											className: "grid grid-cols-3 gap-3",
-											children: [
-												/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-													className: "flex flex-col",
-													children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-														type: "number",
-														id: `input-d-${i}`,
-														inputMode: "numeric",
-														value: builderVal.d,
-														onChange: (e) => handleBuilderTimeChange(idx, "d", e.target.value),
-														placeholder: "0",
-														min: "0",
-														max: "999",
-														className: `glass-input ${isGoblin ? "goblin-input" : ""} w-full rounded-xl py-3 px-2 text-center text-xl font-bold placeholder-gray-500`
-													}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-														className: "text-xs font-semibold text-gray-200 text-center mt-1",
-														children: "Days"
-													})]
-												}),
-												/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-													className: "flex flex-col",
-													children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-														type: "number",
-														id: `input-h-${i}`,
-														inputMode: "numeric",
-														value: builderVal.h,
-														onChange: (e) => handleBuilderTimeChange(idx, "h", e.target.value),
-														placeholder: "0",
-														min: "0",
-														max: "24",
-														className: `glass-input ${isGoblin ? "goblin-input" : ""} w-full rounded-xl py-3 px-2 text-center text-xl font-bold placeholder-gray-500`
-													}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-														className: "text-xs font-semibold text-gray-200 text-center mt-1",
-														children: "Hours"
-													})]
-												}),
-												/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-													className: "flex flex-col",
-													children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-														type: "number",
-														id: `input-m-${i}`,
-														inputMode: "numeric",
-														value: builderVal.m,
-														onChange: (e) => handleBuilderTimeChange(idx, "m", e.target.value),
-														placeholder: "0",
-														min: "0",
-														max: "60",
-														className: `glass-input ${isGoblin ? "goblin-input" : ""} w-full rounded-xl py-3 px-2 text-center text-xl font-bold placeholder-gray-500`
-													}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-														className: "text-xs font-semibold text-gray-200 text-center mt-1",
-														children: "Mins"
-													})]
-												})
-											]
-										}),
-										/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-											className: "flex flex-wrap items-center gap-1.5 mt-3 pt-2.5 border-t border-white/10",
-											children: [[
-												{
-													label: "+6h",
-													d: 0,
-													h: 6
-												},
-												{
-													label: "+12h",
-													d: 0,
-													h: 12
-												},
-												{
-													label: "+1d",
-													d: 1,
-													h: 0
-												},
-												{
-													label: "+3d",
-													d: 3,
-													h: 0
-												},
-												{
-													label: "+5d",
-													d: 5,
-													h: 0
-												},
-												{
-													label: "+7d",
-													d: 7,
-													h: 0
-												}
-											].map((preset) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-												type: "button",
-												onClick: () => applyPresetToBuilder(idx, preset.d, preset.h),
-												className: `tactile text-xs font-bold px-2.5 py-1 rounded-lg border cursor-pointer ${isGoblin ? "bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-200 border-emerald-500/30" : "bg-white/10 hover:bg-white/20 text-[#f8fafc] border-white/15"}`,
-												children: preset.label
-											}, preset.label)), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-												type: "button",
-												onClick: () => resetBuilderTime(idx),
-												className: "tactile text-xs font-bold px-2.5 py-1 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 ml-auto cursor-pointer",
-												children: "Clear"
-											})]
-										})
-									]
-								}, i);
-							})]
-						}),
-						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-							className: "builder-card rounded-2xl p-4",
-							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
-								className: "block text-base text-[#f8fafc] mb-2.5 font-extrabold flex justify-between items-center",
-								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-									className: "flex items-center gap-2",
-									children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "🧪 Potions Used" })
-								}), potionsInput && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+							})
+						]
+					}),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						id: "results-container",
+						className: `${showResult && lockedResults.length > 0 ? "show-result" : "hidden-result"} mt-8 pt-6 border-t border-white/15 relative z-10`,
+						children: [
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "flex items-center justify-between mb-3",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+									className: "flex items-center gap-1.5",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "h-2 w-2 rounded-full bg-[#22c55e] animate-pulse" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+										className: "text-xs font-extrabold uppercase tracking-wider text-[#f8fafc]",
+										children: "Locked Finish Schedule"
+									})]
+								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 									type: "button",
-									onClick: () => {
-										triggerHaptic();
-										setPotionsInput("");
-									},
-									className: "tactile text-xs font-bold text-gray-300 hover:text-elixir transition cursor-pointer bg-white/10 px-2 py-0.5 rounded-md",
-									children: "Clear"
+									onClick: unlockAndEditTimers,
+									className: "tactile text-xs font-bold text-[#fbbf24] hover:text-amber-300 bg-amber-500/15 hover:bg-amber-500/25 border border-amber-400/30 px-2.5 py-1 rounded-lg cursor-pointer",
+									children: "Reset / Edit Timers"
 								})]
-							}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-								className: "flex items-center gap-2.5",
-								children: [
-									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-										type: "button",
-										onClick: () => adjustPotions(-1),
-										className: "tactile glass-input w-12 h-12 rounded-xl text-xl font-extrabold text-white hover:bg-white/15 flex items-center justify-center cursor-pointer",
-										"aria-label": "Decrease potions",
-										children: "−"
-									}),
-									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-										className: "relative flex-1",
-										children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-											type: "number",
-											id: "input-potions",
-											inputMode: "numeric",
-											value: potionsInput,
-											onChange: (e) => handlePotionsChange(e.target.value),
-											placeholder: "0",
-											min: "0",
-											max: "999",
-											className: "glass-input w-full rounded-xl py-3 px-3 text-center text-xl font-extrabold placeholder-gray-500"
-										})
-									}),
-									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-										type: "button",
-										onClick: () => adjustPotions(1),
-										className: "tactile glass-input w-12 h-12 rounded-xl text-xl font-extrabold text-[#fbbf24] hover:bg-white/15 flex items-center justify-center cursor-pointer",
-										"aria-label": "Increase potions",
-										children: "+"
-									})
-								]
-							})]
-						}),
-						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-							className: "flex gap-2.5 mt-4",
-							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-								type: "button",
-								onClick: calculateTime,
-								className: "btn-calculate tactile flex-1 text-white font-bold text-lg rounded-xl py-4 tracking-wide shadow-lg cursor-pointer",
-								children: "Calculate Finish Time"
-							}), (builders.slice(0, activeBuildersToRender).some((b) => b.d || b.h || b.m) || lockedResults.length > 0) && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
-								type: "button",
-								onClick: resetAllTimes,
-								className: "tactile glass-input hover:border-pink-500/50 hover:bg-pink-500/10 text-gray-200 hover:text-white px-4 rounded-xl flex flex-col items-center justify-center gap-0.5 transition cursor-pointer",
-								title: "Reset all days, hours, and minutes",
-								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("svg", {
-									className: "w-5 h-5 text-gray-200",
-									fill: "none",
-									stroke: "currentColor",
-									viewBox: "0 0 24 24",
-									children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", {
-										strokeLinecap: "round",
-										strokeLinejoin: "round",
-										strokeWidth: "2",
-										d: "M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-									})
-								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-									className: "text-[10px] font-bold uppercase tracking-wider text-gray-200",
-									children: "Reset"
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+								id: "results-content",
+								className: "space-y-3",
+								children: lockedResults.map((item, idx) => {
+									const isFinishingNext = lockedResults.length > 1 && soonestTargetTimestamp !== null && item.targetTimestamp === soonestTargetTimestamp;
+									const isHero = !item.isGoblin && !!item.rawId?.startsWith("28");
+									const cardAccentClass = item.isGoblin ? "goblin-card accent-goblin" : isHero ? "bg-black/40 border-white/10 accent-hero" : "bg-black/40 border-white/10 accent-gold";
+									const badgeClass = item.isGoblin ? "slot-badge-goblin" : isHero ? "slot-badge-hero" : "slot-badge-regular";
+									return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+										className: `rounded-2xl p-4 border flex flex-col ${cardAccentClass}`,
+										children: [
+											/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+												className: "builder-header-sep flex flex-wrap items-center justify-between gap-2",
+												children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+													className: "flex flex-wrap items-center gap-2",
+													children: [
+														/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+															className: badgeClass,
+															children: item.slotBadge
+														}),
+														/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+															className: "upgrade-title",
+															children: item.upgradeTitle
+														}),
+														typeof item.upgradeLevel === "number" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+															className: item.isGoblin ? "lvl-chip-goblin" : "lvl-chip",
+															children: ["LVL ", item.upgradeLevel]
+														})
+													]
+												}), isFinishingNext && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+													className: "text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-md bg-amber-500/20 text-[#fbbf24] border border-amber-400/40",
+													children: "NEXT FREE"
+												})]
+											}),
+											/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+												className: "flex items-baseline gap-2 mb-3",
+												children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+													className: "text-[10px] uppercase tracking-wider text-gray-300 font-bold",
+													children: "Completes On:"
+												}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+													className: "text-base font-extrabold text-gold",
+													children: item.formattedDate
+												})]
+											}),
+											/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+												className: "pt-2.5 border-t border-white/10",
+												children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(LiveHudTicker, { targetTimestamp: item.targetTimestamp })
+											})
+										]
+									}, `${item.builderIndex}-${item.targetTimestamp}-${idx}`);
+								})
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "bg-black/40 rounded-2xl p-4 mt-4 border border-white/10 flex justify-between items-center",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+									className: "text-xs font-bold text-gray-200 uppercase tracking-wider",
+									children: "Total Time Saved"
+								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+									id: "result-saved",
+									className: "text-lg font-extrabold text-elixir",
+									children: savedText
 								})]
-							})]
-						})
-					]
-				}),
-				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-					id: "results-container",
-					className: `${showResult && lockedResults.length > 0 ? "show-result" : "hidden-result"} mt-8 pt-6 border-t border-white/15 relative z-10`,
+							})
+						]
+					}, animKey)
+				]
+			}),
+			isImportModalOpen && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+				className: "fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4",
+				onClick: () => setIsImportModalOpen(false),
+				children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+					className: "w-full max-w-md rounded-3xl p-6 bg-[#090d16] border border-white/15 shadow-[0_0_40px_rgba(0,0,0,0.85)] space-y-4 relative overflow-hidden",
+					onClick: (e) => e.stopPropagation(),
 					children: [
 						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-							className: "flex items-center justify-between mb-3",
+							className: "flex items-center justify-between",
 							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-								className: "flex items-center gap-1.5",
-								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "h-2 w-2 rounded-full bg-[#22c55e] animate-pulse" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-									className: "text-xs font-extrabold uppercase tracking-wider text-[#f8fafc]",
-									children: "Locked Finish Schedule"
+								className: "flex items-center gap-2",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+									className: "text-lg",
+									children: "📥"
+								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", {
+									className: "text-lg font-extrabold text-[#f8fafc]",
+									children: "Import CoC Village JSON"
 								})]
 							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 								type: "button",
-								onClick: unlockAndEditTimers,
-								className: "tactile text-xs font-bold text-[#fbbf24] hover:text-amber-300 bg-amber-500/15 hover:bg-amber-500/25 border border-amber-400/30 px-2.5 py-1 rounded-lg cursor-pointer",
-								children: "Reset / Edit Timers"
+								onClick: () => {
+									triggerHaptic();
+									setIsImportModalOpen(false);
+								},
+								className: "tactile text-gray-400 hover:text-white text-sm font-bold px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/10 cursor-pointer",
+								children: "✕"
 							})]
 						}),
-						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-							id: "results-content",
-							className: "space-y-3",
-							children: lockedResults.map((item, idx) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-								className: `rounded-2xl p-4 border flex flex-col gap-3 ${item.isGoblin ? "goblin-card" : "bg-black/40 border-white/10"}`,
-								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-									className: "flex items-center gap-1.5 mb-1",
-									children: [item.isGoblin && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-										className: "text-[10px] font-extrabold uppercase tracking-wider px-1.5 py-0.5 rounded bg-emerald-500/20 text-[#22c55e] border border-emerald-400/40",
-										children: "[GOBLIN BUILDER]"
-									}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
-										className: `text-xs font-extrabold uppercase tracking-wider ${item.isGoblin ? "text-[#22c55e]" : "text-gray-200"}`,
-										children: [item.builderLabel, " Completes On"]
-									})]
-								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-									className: "text-base font-extrabold text-gold",
-									children: item.formattedDate
-								})] }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-									className: "pt-2.5 border-t border-white/10",
-									children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(LiveHudTicker, { targetTimestamp: item.targetTimestamp })
-								})]
-							}, `${item.builderIndex}-${item.targetTimestamp}-${idx}`))
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
+							className: "text-xs text-gray-300 leading-relaxed",
+							children: [
+								"In Clash of Clans, go to",
+								" ",
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+									className: "text-[#fbbf24] font-bold",
+									children: "Settings → More Settings → Data Export → Copy"
+								}),
+								" ",
+								"and paste your village JSON below."
+							]
 						}),
 						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-							className: "bg-black/40 rounded-2xl p-4 mt-4 border border-white/10 flex justify-between items-center",
-							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
-								className: "text-xs font-bold text-gray-200 uppercase tracking-wider",
-								children: "Total Time Saved"
-							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-								id: "result-saved",
-								className: "text-lg font-extrabold text-elixir",
-								children: savedText
+							className: "relative",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("textarea", {
+								value: jsonInputText,
+								onChange: (e) => setJsonInputText(e.target.value),
+								placeholder: "Paste your raw Clash of Clans village export JSON here...",
+								rows: 6,
+								className: "glass-input w-full rounded-2xl p-3.5 text-xs font-mono text-gray-100 placeholder-gray-500 resize-none focus:outline-none"
+							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+								type: "button",
+								onClick: async () => {
+									triggerHaptic();
+									try {
+										const clip = await navigator.clipboard.readText();
+										if (clip) setJsonInputText(clip);
+									} catch {}
+								},
+								className: "tactile absolute bottom-3 right-3 text-[11px] font-bold px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-[#fbbf24] border border-white/15 cursor-pointer",
+								children: "📋 Paste"
+							})]
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "flex gap-2.5 pt-1",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+								type: "button",
+								onClick: () => {
+									triggerHaptic();
+									setIsImportModalOpen(false);
+								},
+								className: "tactile flex-1 py-3 rounded-xl font-bold text-sm text-gray-200 bg-white/10 hover:bg-white/15 border border-white/10 cursor-pointer",
+								children: "Cancel"
+							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+								type: "button",
+								onClick: handleImportVillageJson,
+								className: "btn-calculate tactile flex-1 py-3 rounded-xl font-extrabold text-sm text-white shadow-lg cursor-pointer",
+								children: "Import Timers"
 							})]
 						})
 					]
-				}, animKey)
-			]
-		})
+				})
+			})
+		]
 	});
 }
 // src/main.tsx

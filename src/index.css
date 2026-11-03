@@ -128,6 +128,93 @@ input[type="number"] {
   background: rgba(0, 0, 0, 0.45);
 }
 
+/* Minimalist High-Contrast Builder Card Header Styles */
+.slot-badge-regular {
+  color: #fbbf24;
+  background: rgba(251, 191, 36, 0.12);
+  border: 1px solid rgba(251, 191, 36, 0.3);
+  border-radius: 6px;
+  padding: 2px 7px;
+  font-weight: 800;
+  font-size: 0.75rem;
+  line-height: 1.25;
+}
+
+.slot-badge-hero {
+  color: #e879f9;
+  background: rgba(217, 70, 239, 0.14);
+  border: 1px solid rgba(217, 70, 239, 0.4);
+  border-radius: 6px;
+  padding: 2px 7px;
+  font-weight: 800;
+  font-size: 0.75rem;
+  line-height: 1.25;
+}
+
+.slot-badge-goblin {
+  color: #22c55e;
+  background: rgba(34, 197, 94, 0.12);
+  border: 1px solid rgba(34, 197, 94, 0.4);
+  border-radius: 6px;
+  padding: 2px 7px;
+  font-weight: 800;
+  font-size: 0.75rem;
+  line-height: 1.25;
+  box-shadow: 0 0 8px rgba(34, 197, 94, 0.2);
+}
+
+.upgrade-title {
+  color: #ffffff;
+  font-weight: 700;
+  font-size: 1.05rem;
+  letter-spacing: 0.25px;
+  line-height: 1.3;
+}
+
+.lvl-chip {
+  background: rgba(251, 191, 36, 0.1);
+  border: 1px solid rgba(251, 191, 36, 0.35);
+  color: #fbbf24;
+  font-weight: 800;
+  font-size: 0.72rem;
+  letter-spacing: 0.5px;
+  border-radius: 6px;
+  padding: 2px 7px;
+  line-height: 1.25;
+}
+
+.lvl-chip-goblin {
+  background: rgba(34, 197, 94, 0.12);
+  border: 1px solid rgba(34, 197, 94, 0.4);
+  color: #22c55e;
+  font-weight: 800;
+  font-size: 0.72rem;
+  letter-spacing: 0.5px;
+  border-radius: 6px;
+  padding: 2px 7px;
+  line-height: 1.25;
+}
+
+/* Dynamic Category Accent Left Borders */
+.accent-gold {
+  border-left: 3px solid #fbbf24 !important;
+}
+
+.accent-hero {
+  border-left: 3px solid #d946ef !important;
+}
+
+.accent-goblin {
+  border-left: 3px solid #22c55e !important;
+  box-shadow: -2px 0 8px rgba(34, 197, 94, 0.3), 0 0 20px rgba(34, 197, 94, 0.15), inset 0 0 12px rgba(34, 197, 94, 0.08) !important;
+}
+
+.builder-header-sep {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  padding-bottom: 8px;
+  margin-bottom: 12px;
+}
+
 /* 4-Unit HUD Live Countdown Ticker & Tiered Animations */
 .hud-unit {
   background: rgba(2, 6, 23, 0.65);

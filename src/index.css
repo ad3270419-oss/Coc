@@ -410,5 +410,31 @@ input[type="number"] {
   }
 }
 
+/* Subtle Green Glowing Dot Indicator for Active Apprentice Session */
+.helper-pulse-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #10b981;
+  box-shadow: 0 0 8px #10b981;
+  display: inline-block;
+  animation: pulse 2s infinite;
+  flex-shrink: 0;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+    box-shadow: 0 0 8px #10b981;
+  }
+  50% {
+    opacity: 0.45;
+    transform: scale(0.88);
+    box-shadow: 0 0 14px #10b981;
+  }
+}
+
+
 
 

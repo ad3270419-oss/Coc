@@ -12144,7 +12144,7 @@ var Weekday;
 	Weekday[Weekday["Saturday"] = 7] = "Saturday";
 })(Weekday || (Weekday = {}));
 // node_modules/@capacitor/local-notifications/dist/esm/index.js
-var LocalNotifications = registerPlugin("LocalNotifications", { web: () => __vitePreload(() => import("./web-DtmCSCKR.js").then((m) => new m.LocalNotificationsWeb()), []) });
+var LocalNotifications = registerPlugin("LocalNotifications", { web: () => __vitePreload(() => import("./web-Cwli9kc7.js").then((m) => new m.LocalNotificationsWeb()), []) });
 // node_modules/react/cjs/react-jsx-runtime.production.js
 /**
 * @license React
@@ -12248,7 +12248,7 @@ var COC_NAMES = {
 	28000006: "Minion Prince",
 	28000007: "Dragon Duke",
 	93e6: "Builder's Apprentice",
-	93000001: "Lab Assistant",
+	93000001: "Lab Apprentice",
 	93000002: "Prospector"
 };
 Object.assign(COC_NAMES, {
@@ -12322,7 +12322,9 @@ Object.assign(COC_NAMES, {
 	26000098: "Revive Spell",
 	26000109: "Ice Block Spell",
 	26000120: "Totem Spell",
-	26000123: "Angry Spell"
+	26000123: "Angry Spell",
+	93e6: "Builder's Apprentice",
+	93000001: "Lab Apprentice"
 });
 var STORAGE_KEY = "coc_builder_potion_saved_v2";
 var LEGACY_STORAGE_KEY = "coc_builder_potion_saved_v1";
@@ -12524,6 +12526,24 @@ function createEmptyTimer() {
 function createEmptyBuilders() {
 	return Array.from({ length: 7 }, () => createEmptyTimer());
 }
+function createDefaultBuilderApprentice() {
+	return {
+		id: 93e6,
+		level: 8,
+		assignedSlot: null,
+		activeSessionEndTime: null,
+		cooldownEndTime: null
+	};
+}
+function createDefaultLabApprentice() {
+	return {
+		id: 93000001,
+		level: 8,
+		assignedSlot: null,
+		activeSessionEndTime: null,
+		cooldownEndTime: null
+	};
+}
 function createDefaultSavedState() {
 	return {
 		mode: "single",
@@ -12547,7 +12567,9 @@ function createDefaultSavedState() {
 		petSavedText: "",
 		builderBoostEndTime: null,
 		labBoostEndTime: null,
-		petBoostEndTime: null
+		petBoostEndTime: null,
+		builderApprentice: createDefaultBuilderApprentice(),
+		labApprentice: createDefaultLabApprentice()
 	};
 }
 function triggerHaptic(pattern = 15) {
@@ -12607,8 +12629,10 @@ function normalizeSavedState(parsed) {
 			formattedDate: item.formattedDate
 		};
 	}) : [];
+	const rawBuilderSessionEnd = parsed.builderApprentice?.activeSessionEndTime ?? parsed.builderApprentice?.activeBoostEndTime;
+	const rawLabSessionEnd = parsed.labApprentice?.activeSessionEndTime ?? parsed.labApprentice?.activeBoostEndTime;
 	return {
-		mode: parsed.mode === "multi" ? "multi" : "single",
+		mode: parsed.mode === "multi" ? "multi" : parsed.mode === "helpers" ? "helpers" : "single",
 		numBuilders: typeof parsed.numBuilders === "number" && parsed.numBuilders >= 1 && parsed.numBuilders <= 7 ? parsed.numBuilders : 2,
 		builders,
 		potions: typeof parsed.potions === "string" ? parsed.potions : "",
@@ -12629,7 +12653,21 @@ function normalizeSavedState(parsed) {
 		petSavedText: typeof parsed.petSavedText === "string" ? parsed.petSavedText : "",
 		builderBoostEndTime: typeof parsed.builderBoostEndTime === "number" && parsed.builderBoostEndTime > 0 ? parsed.builderBoostEndTime : null,
 		labBoostEndTime: typeof parsed.labBoostEndTime === "number" && parsed.labBoostEndTime > 0 ? parsed.labBoostEndTime : null,
-		petBoostEndTime: typeof parsed.petBoostEndTime === "number" && parsed.petBoostEndTime > 0 ? parsed.petBoostEndTime : null
+		petBoostEndTime: typeof parsed.petBoostEndTime === "number" && parsed.petBoostEndTime > 0 ? parsed.petBoostEndTime : null,
+		builderApprentice: {
+			id: 93e6,
+			level: typeof parsed.builderApprentice?.level === "number" && parsed.builderApprentice.level >= 1 && parsed.builderApprentice.level <= 8 ? Math.floor(parsed.builderApprentice.level) : 8,
+			assignedSlot: typeof parsed.builderApprentice?.assignedSlot === "number" && parsed.builderApprentice.assignedSlot >= 0 && parsed.builderApprentice.assignedSlot <= 6 ? parsed.builderApprentice.assignedSlot : null,
+			activeSessionEndTime: typeof rawBuilderSessionEnd === "number" && rawBuilderSessionEnd > 0 ? rawBuilderSessionEnd : null,
+			cooldownEndTime: typeof parsed.builderApprentice?.cooldownEndTime === "number" && parsed.builderApprentice.cooldownEndTime > 0 ? parsed.builderApprentice.cooldownEndTime : null
+		},
+		labApprentice: {
+			id: 93000001,
+			level: typeof parsed.labApprentice?.level === "number" && parsed.labApprentice.level >= 1 && parsed.labApprentice.level <= 8 ? Math.floor(parsed.labApprentice.level) : 8,
+			assignedSlot: parsed.labApprentice?.assignedSlot === "main" || parsed.labApprentice?.assignedSlot === "goblin" ? parsed.labApprentice.assignedSlot : null,
+			activeSessionEndTime: typeof rawLabSessionEnd === "number" && rawLabSessionEnd > 0 ? rawLabSessionEnd : null,
+			cooldownEndTime: typeof parsed.labApprentice?.cooldownEndTime === "number" && parsed.labApprentice.cooldownEndTime > 0 ? parsed.labApprentice.cooldownEndTime : null
+		}
 	};
 }
 function loadLegacySingleAccountState() {
@@ -12712,6 +12750,44 @@ function getRemainingBoostSeconds(boostEndTime, now = Date.now()) {
 	if (!boostEndTime || boostEndTime <= now) return 0;
 	return Math.max(0, Math.ceil((boostEndTime - now) / 1e3));
 }
+/**
+* Real-Time 1-Hour Active Session Engine for Builder's Apprentice (93000000) & Lab Apprentice (93000001):
+* - Multiplier = Helper Level N (e.g., Level 8 = 8x speed; Level 1 = 2x speed).
+* - During the 1-hour (3,600s) active window, every real-time second decrements N seconds from the assigned upgrade timer.
+* - Total work done in 1 hour = N * 3600 seconds of upgrade progress.
+* - Net time saved = (N - 1) * 3600 seconds.
+* - Finish Timestamp Calculation:
+*   * If upgrade time remaining T <= (N * 3600): Target finish timestamp = Date.now() + (T / N) * 1000.
+*   * If upgrade time remaining T > (N * 3600): Target finish timestamp = Date.now() + (3600 + (T - (N * 3600))) * 1000.
+*/
+function getHelperSpeedMultiplier(level) {
+	const clamped = Math.min(8, Math.max(1, Math.floor(level || 1)));
+	return clamped === 1 ? 2 : clamped;
+}
+function calcHelperSessionRealTimeSeconds(params) {
+	const { remainingUpgradeSeconds, helperLevel, activeSessionSeconds, potionCount = 0, activePotionBoostSeconds = 0, potionRate = 10 } = params;
+	if (remainingUpgradeSeconds <= 0) return 0;
+	const sessionSecs = Math.max(0, activeSessionSeconds);
+	const N = getHelperSpeedMultiplier(helperLevel);
+	if (sessionSecs <= 0) return potionRate === 24 ? calc24xRealTimeSeconds(remainingUpgradeSeconds, potionCount, activePotionBoostSeconds) : calc10xRealTimeSeconds(remainingUpgradeSeconds, potionCount, activePotionBoostSeconds);
+	const sessionWorkCapacity = N * sessionSecs;
+	if (remainingUpgradeSeconds <= sessionWorkCapacity) return remainingUpgradeSeconds / N;
+	const remainingWorkAfterSession = remainingUpgradeSeconds - sessionWorkCapacity;
+	return sessionSecs + (potionRate === 24 ? calc24xRealTimeSeconds(remainingWorkAfterSession, potionCount, activePotionBoostSeconds) : calc10xRealTimeSeconds(remainingWorkAfterSession, potionCount, activePotionBoostSeconds));
+}
+function formatMMSS(totalSeconds) {
+	const clamped = Math.max(0, Math.floor(totalSeconds));
+	const mm = Math.floor(clamped / 60);
+	const ss = clamped % 60;
+	return `${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
+}
+function formatCooldownHMS(totalSeconds) {
+	const clamped = Math.max(0, Math.floor(totalSeconds));
+	const hh = Math.floor(clamped / 3600);
+	const mm = Math.floor(clamped % 3600 / 60);
+	const ss = clamped % 60;
+	return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
+}
 function formatCompletionDate(timestamp) {
 	return new Date(timestamp).toLocaleString("en-US", {
 		month: "short",
@@ -12760,22 +12836,37 @@ function convertRawItemToTimer(item, fallbackTitle) {
 		rawId: rawIdStr
 	};
 }
-function computeTimeParts(targetTimestamp) {
-	const remMs = targetTimestamp - Date.now();
+/**
+* Computes displayed upgrade time parts:
+* - During an active 1-hour Apprentice session (`helperBoostEndTime > now`),
+*   every 1 real-time second decrements `helperSpeedMultiplier` (N) seconds from the upgrade timer
+*   with ZERO instant time chop at activation.
+* - Once the 1-hour session ends (`now >= helperBoostEndTime`), speed drops back to 1x normal speed.
+*/
+function computeTimeParts(targetTimestamp, helperBoostEndTime, helperSpeedMultiplier = 1) {
+	const now = Date.now();
+	const remMs = targetTimestamp - now;
 	if (remMs <= 0) return {
 		isFinished: true,
 		d: 0,
 		h: 0,
 		m: 0,
-		s: 0
+		s: 0,
+		totalUpgradeSeconds: 0
 	};
-	const totalSeconds = Math.ceil(remMs / 1e3);
+	let totalSeconds;
+	if (helperBoostEndTime && helperBoostEndTime > now && helperSpeedMultiplier > 1) {
+		const boostedRealSec = Math.max(0, (Math.min(targetTimestamp, helperBoostEndTime) - now) / 1e3);
+		const unboostedRealSec = Math.max(0, (targetTimestamp - Math.max(now, helperBoostEndTime)) / 1e3);
+		totalSeconds = Math.ceil(boostedRealSec * helperSpeedMultiplier + unboostedRealSec);
+	} else totalSeconds = Math.ceil(remMs / 1e3);
 	return {
 		isFinished: false,
 		d: Math.floor(totalSeconds / 86400),
 		h: Math.floor(totalSeconds % 86400 / 3600),
 		m: Math.floor(totalSeconds % 3600 / 60),
-		s: totalSeconds % 60
+		s: totalSeconds % 60,
+		totalUpgradeSeconds: totalSeconds
 	};
 }
 function retriggerClass(el, className) {
@@ -12788,12 +12879,15 @@ function retriggerClass(el, className) {
 * Isolated 4-Unit HUD Live Countdown Ticker:
 * [ DD d ] : [ HH h ] : [ MM m ] : [ SS s ]
 * Updates digit spans directly via DOM refs so 1-second ticks never re-render parent UI.
+* When `helperBoostEndTime` is active, decrements `helperSpeedMultiplier` (N) seconds per real second.
 */
-var LiveHudTicker = import_react.memo(({ targetTimestamp, label = "Live Countdown", finishBadgeText = "⚡ UPGRADE FINISHED! BUILDER FREE", accentColorClass = "text-[#fbbf24]" }) => {
-	const initialParts = computeTimeParts(targetTimestamp);
+var LiveHudTicker = import_react.memo(({ targetTimestamp, helperBoostEndTime = null, helperSpeedMultiplier = 1, label = "Live Countdown", finishBadgeText = "⚡ UPGRADE FINISHED! BUILDER FREE", accentColorClass = "text-[#fbbf24]", onFinish }) => {
+	const initialParts = computeTimeParts(targetTimestamp, helperBoostEndTime, helperSpeedMultiplier);
 	const [isFinished, setIsFinished] = (0, import_react.useState)(initialParts.isFinished);
 	const prevPartsRef = (0, import_react.useRef)(initialParts);
 	const wasRunningRef = (0, import_react.useRef)(!initialParts.isFinished);
+	const onFinishRef = (0, import_react.useRef)(onFinish);
+	onFinishRef.current = onFinish;
 	const dayBoxRef = (0, import_react.useRef)(null);
 	const hourBoxRef = (0, import_react.useRef)(null);
 	const minBoxRef = (0, import_react.useRef)(null);
@@ -12802,13 +12896,20 @@ var LiveHudTicker = import_react.memo(({ targetTimestamp, label = "Live Countdow
 	const minValRef = (0, import_react.useRef)(null);
 	const secValRef = (0, import_react.useRef)(null);
 	(0, import_react.useEffect)(() => {
-		const startParts = computeTimeParts(targetTimestamp);
+		const startParts = computeTimeParts(targetTimestamp, helperBoostEndTime, helperSpeedMultiplier);
 		prevPartsRef.current = startParts;
 		wasRunningRef.current = !startParts.isFinished;
 		setIsFinished(startParts.isFinished);
-		if (startParts.isFinished) return;
+		if (startParts.isFinished) {
+			onFinishRef.current?.();
+			return;
+		}
+		if (dayValRef.current) dayValRef.current.textContent = String(startParts.d).padStart(2, "0");
+		if (hourValRef.current) hourValRef.current.textContent = String(startParts.h).padStart(2, "0");
+		if (minValRef.current) minValRef.current.textContent = String(startParts.m).padStart(2, "0");
+		if (secValRef.current) secValRef.current.textContent = String(startParts.s).padStart(2, "0");
 		const timerId = window.setInterval(() => {
-			const next = computeTimeParts(targetTimestamp);
+			const next = computeTimeParts(targetTimestamp, helperBoostEndTime, helperSpeedMultiplier);
 			if (next.isFinished) {
 				window.clearInterval(timerId);
 				if (wasRunningRef.current) {
@@ -12818,6 +12919,7 @@ var LiveHudTicker = import_react.memo(({ targetTimestamp, label = "Live Countdow
 						50,
 						30
 					]);
+					onFinishRef.current?.();
 				}
 				setIsFinished(true);
 				return;
@@ -12842,7 +12944,11 @@ var LiveHudTicker = import_react.memo(({ targetTimestamp, label = "Live Countdow
 			prevPartsRef.current = next;
 		}, 1e3);
 		return () => window.clearInterval(timerId);
-	}, [targetTimestamp]);
+	}, [
+		targetTimestamp,
+		helperBoostEndTime,
+		helperSpeedMultiplier
+	]);
 	if (isFinished) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 		className: "badge-finished-glow w-full rounded-xl px-3 py-2.5 flex items-center justify-center gap-2 text-center",
 		children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
@@ -13038,6 +13144,198 @@ var ActiveBoostHudBadge = import_react.memo(({ boostEndTime, variant, onExpire }
 		})]
 	});
 });
+/**
+* Dedicated Obsidian Card for Helpers Sub-Tab:
+* - Card 1: 👷 Builder's Apprentice (ID: 93000000)
+* - Card 2: 🔬 Lab Apprentice (ID: 93000001)
+* Displays Level 1-8 selector, live 1-hour active work countdown (`⚡ Active Work Remaining: [MM:SS]`),
+* target name (`Boosting: [Building/Troop Name] at [N]x speed`), daily cooldown (`⏳ Next Available In: [HH:MM:SS]`),
+* ready badge (`✅ Ready to Assign`), and "Assign to Upgrade" action button.
+*/
+var HelperObsidianCard = ({ helperId, icon, title, subtitle, accentVariant, level, targetName, activeSessionEndTime, cooldownEndTime, onChangeLevel, onOpenAssignModal, onSessionExpire, onCooldownExpire }) => {
+	const [activeRemSec, setActiveRemSec] = (0, import_react.useState)(() => getRemainingBoostSeconds(activeSessionEndTime));
+	const [cooldownRemSec, setCooldownRemSec] = (0, import_react.useState)(() => getRemainingBoostSeconds(cooldownEndTime));
+	(0, import_react.useEffect)(() => {
+		const syncTimers = () => {
+			const now = Date.now();
+			const nextActive = getRemainingBoostSeconds(activeSessionEndTime, now);
+			const nextCool = getRemainingBoostSeconds(cooldownEndTime, now);
+			setActiveRemSec(nextActive);
+			setCooldownRemSec(nextCool);
+			if (activeSessionEndTime && nextActive <= 0) onSessionExpire();
+			if (cooldownEndTime && nextCool <= 0 && nextActive <= 0) onCooldownExpire();
+		};
+		syncTimers();
+		const intervalId = window.setInterval(syncTimers, 1e3);
+		return () => window.clearInterval(intervalId);
+	}, [
+		activeSessionEndTime,
+		cooldownEndTime,
+		onSessionExpire,
+		onCooldownExpire
+	]);
+	const speedMultiplier = getHelperSpeedMultiplier(level);
+	const netSavedHours = speedMultiplier - 1;
+	const isWorking = activeRemSec > 0 && !!targetName;
+	const isOnCooldown = !isWorking && cooldownRemSec > 0;
+	const cardAccentClass = accentVariant === "gold" ? "builder-card accent-gold" : "builder-card accent-hero";
+	const badgeClass = accentVariant === "gold" ? "slot-badge-regular" : "slot-badge-hero";
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+		className: `rounded-2xl p-4 space-y-3.5 ${cardAccentClass}`,
+		children: [
+			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+				className: "builder-header-sep flex flex-wrap items-center justify-between gap-2",
+				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+					className: "flex items-center gap-2",
+					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+						className: "text-lg",
+						children: icon
+					}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						className: "flex items-center gap-2",
+						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+							className: "upgrade-title",
+							children: title
+						}), isWorking && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+							className: "helper-pulse-dot",
+							title: "Apprentice Active"
+						})]
+					}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+						className: "text-[11px] font-semibold text-gray-300",
+						children: subtitle
+					})] })]
+				}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+					className: "flex items-center gap-1.5",
+					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+						className: badgeClass,
+						children: ["ID: ", helperId]
+					}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+						className: "lvl-chip",
+						children: [
+							speedMultiplier,
+							"x (",
+							netSavedHours,
+							"h saved)"
+						]
+					})]
+				})]
+			}),
+			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+				className: "flex items-center justify-between mb-1.5",
+				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+					className: "text-[10px] font-extrabold uppercase tracking-wider text-gray-300",
+					children: "Helper Level (Lvl 1 – 8)"
+				}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+					className: `text-xs font-extrabold ${accentVariant === "gold" ? "text-[#fbbf24]" : "text-[#f0abfc]"}`,
+					children: [
+						"Lvl ",
+						level,
+						" • ",
+						speedMultiplier,
+						"x Speed"
+					]
+				})]
+			}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+				className: "grid grid-cols-8 gap-1",
+				children: [
+					1,
+					2,
+					3,
+					4,
+					5,
+					6,
+					7,
+					8
+				].map((lvlNum) => {
+					return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+						type: "button",
+						onClick: () => {
+							triggerHaptic(10);
+							onChangeLevel(lvlNum);
+						},
+						className: `tactile py-1.5 rounded-lg text-[11px] font-extrabold border transition cursor-pointer ${level === lvlNum ? accentVariant === "gold" ? "bg-amber-500/25 text-[#fbbf24] border-amber-400/60 shadow-[0_0_10px_rgba(251,191,36,0.25)]" : "bg-fuchsia-500/25 text-[#f0abfc] border-fuchsia-400/60 shadow-[0_0_10px_rgba(217,70,239,0.25)]" : "bg-black/40 text-gray-300 border-white/10 hover:bg-white/10"}`,
+						children: lvlNum
+					}, lvlNum);
+				})
+			})] }),
+			isWorking ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+				className: "rounded-xl p-3 bg-emerald-950/50 border border-emerald-400/40 shadow-[0_0_16px_rgba(16,185,129,0.18)] space-y-1.5",
+				children: [
+					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						className: "flex items-center justify-between gap-2",
+						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+							className: "text-xs font-extrabold text-emerald-300 flex items-center gap-1.5",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+								className: "helper-pulse-dot",
+								title: "Apprentice Active"
+							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "⚡ Active Work Remaining:" })]
+						}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+							className: "text-sm sm:text-base font-extrabold font-mono text-[#22c55e]",
+							children: formatMMSS(activeRemSec)
+						})]
+					}),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
+						className: "text-xs font-bold text-[#f8fafc]",
+						children: [
+							"Boosting:",
+							" ",
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+								className: "text-[#fbbf24] font-extrabold",
+								children: targetName
+							}),
+							" at",
+							" ",
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+								className: "text-[#22c55e] font-extrabold",
+								children: [speedMultiplier, "x speed"]
+							})
+						]
+					}),
+					cooldownRemSec > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
+						className: "text-[11px] font-semibold text-gray-300 pt-1 border-t border-white/10 flex items-center justify-between",
+						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "⏳ Next Available In:" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+							className: "font-mono font-bold text-amber-300",
+							children: formatCooldownHMS(cooldownRemSec)
+						})]
+					})
+				]
+			}) : isOnCooldown ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+				className: "rounded-xl p-3 bg-amber-950/40 border border-amber-400/35 flex items-center justify-between gap-2",
+				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+					className: "text-xs font-extrabold text-amber-200 block",
+					children: "⏳ Next Available In:"
+				}), targetName && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+					className: "text-[11px] font-semibold text-gray-300",
+					children: ["Assigned Slot: ", targetName]
+				})] }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+					className: "text-sm sm:text-base font-extrabold font-mono text-[#fbbf24]",
+					children: formatCooldownHMS(cooldownRemSec)
+				})]
+			}) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+				className: "rounded-xl p-3 bg-emerald-500/10 border border-emerald-400/35 flex items-center justify-between",
+				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+					className: "text-xs font-extrabold text-[#22c55e]",
+					children: "✅ Ready to Assign"
+				}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+					className: "text-[11px] font-bold text-emerald-200/90",
+					children: [
+						"1h Session • ",
+						speedMultiplier,
+						"x Speed"
+					]
+				})]
+			}),
+			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+				type: "button",
+				onClick: () => {
+					triggerHaptic(15);
+					onOpenAssignModal();
+				},
+				className: "btn-calculate tactile w-full py-3 px-4 rounded-xl text-xs sm:text-sm font-extrabold text-white shadow-lg cursor-pointer flex items-center justify-center gap-2",
+				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: icon }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Assign to Upgrade" })]
+			})
+		]
+	});
+};
 function App() {
 	const initialMulti = loadMultiAccountStorage();
 	const initialActiveProfile = initialMulti.accounts.find((a) => a.id === initialMulti.activeAccountId) || initialMulti.accounts[0];
@@ -13072,6 +13370,9 @@ function App() {
 	const [builderBoostEndTime, setBuilderBoostEndTime] = (0, import_react.useState)(initial.builderBoostEndTime && initial.builderBoostEndTime > Date.now() ? initial.builderBoostEndTime : null);
 	const [labBoostEndTime, setLabBoostEndTime] = (0, import_react.useState)(initial.labBoostEndTime && initial.labBoostEndTime > Date.now() ? initial.labBoostEndTime : null);
 	const [petBoostEndTime, setPetBoostEndTime] = (0, import_react.useState)(initial.petBoostEndTime && initial.petBoostEndTime > Date.now() ? initial.petBoostEndTime : null);
+	const [builderApprentice, setBuilderApprentice] = (0, import_react.useState)(() => initial.builderApprentice || createDefaultBuilderApprentice());
+	const [labApprentice, setLabApprentice] = (0, import_react.useState)(() => initial.labApprentice || createDefaultLabApprentice());
+	const [assignModalType, setAssignModalType] = (0, import_react.useState)(null);
 	const [isImportModalOpen, setIsImportModalOpen] = (0, import_react.useState)(false);
 	const [isAddingNewAccount, setIsAddingNewAccount] = (0, import_react.useState)(false);
 	const [newVillageNameInput, setNewVillageNameInput] = (0, import_react.useState)("");
@@ -13093,6 +13394,50 @@ function App() {
 	};
 	(0, import_react.useEffect)(() => {
 		requestNotificationPermissions();
+	}, []);
+	(0, import_react.useEffect)(() => {
+		const intervalId = window.setInterval(() => {
+			const now = Date.now();
+			setBuilderApprentice((prev) => {
+				let changed = false;
+				let nextActive = prev.activeSessionEndTime;
+				let nextCooldown = prev.cooldownEndTime;
+				if (nextActive && nextActive <= now) {
+					if (!nextCooldown || nextCooldown <= now) nextCooldown = nextActive + 828e5;
+					nextActive = null;
+					changed = true;
+				}
+				if (nextCooldown && nextCooldown <= now && !nextActive) {
+					nextCooldown = null;
+					changed = true;
+				}
+				return changed ? {
+					...prev,
+					activeSessionEndTime: nextActive,
+					cooldownEndTime: nextCooldown
+				} : prev;
+			});
+			setLabApprentice((prev) => {
+				let changed = false;
+				let nextActive = prev.activeSessionEndTime;
+				let nextCooldown = prev.cooldownEndTime;
+				if (nextActive && nextActive <= now) {
+					if (!nextCooldown || nextCooldown <= now) nextCooldown = nextActive + 828e5;
+					nextActive = null;
+					changed = true;
+				}
+				if (nextCooldown && nextCooldown <= now && !nextActive) {
+					nextCooldown = null;
+					changed = true;
+				}
+				return changed ? {
+					...prev,
+					activeSessionEndTime: nextActive,
+					cooldownEndTime: nextCooldown
+				} : prev;
+			});
+		}, 1e3);
+		return () => window.clearInterval(intervalId);
 	}, []);
 	const applySavedStateToActiveView = (d) => {
 		const now = Date.now();
@@ -13119,6 +13464,8 @@ function App() {
 		setBuilderBoostEndTime(d.builderBoostEndTime && d.builderBoostEndTime > now ? d.builderBoostEndTime : null);
 		setLabBoostEndTime(d.labBoostEndTime && d.labBoostEndTime > now ? d.labBoostEndTime : null);
 		setPetBoostEndTime(d.petBoostEndTime && d.petBoostEndTime > now ? d.petBoostEndTime : null);
+		setBuilderApprentice(d.builderApprentice || createDefaultBuilderApprentice());
+		setLabApprentice(d.labApprentice || createDefaultLabApprentice());
 		setAnimKey((prev) => prev + 1);
 	};
 	(0, import_react.useEffect)(() => {
@@ -13145,7 +13492,9 @@ function App() {
 				petSavedText,
 				builderBoostEndTime,
 				labBoostEndTime,
-				petBoostEndTime
+				petBoostEndTime,
+				builderApprentice,
+				labApprentice
 			};
 			localStorage.setItem(STORAGE_KEY, JSON.stringify(currentStateToSave));
 			setAccounts((prevAccounts) => {
@@ -13184,7 +13533,9 @@ function App() {
 		petSavedText,
 		builderBoostEndTime,
 		labBoostEndTime,
-		petBoostEndTime
+		petBoostEndTime,
+		builderApprentice,
+		labApprentice
 	]);
 	const handleAccountChipClick = (account) => {
 		triggerHaptic(15);
@@ -13394,15 +13745,23 @@ function App() {
 		const next = Math.min(999, Math.max(0, Math.max(0, parseInt(potionsInput, 10) || 0) + delta));
 		setPotionsInput(next === 0 ? "" : String(next));
 	};
-	const computeLabScheduleValues = (mainTimerVal, goblinTimerVal, potionCount, activeLabBoostSecs = getRemainingBoostSeconds(labBoostEndTime)) => {
+	const computeLabScheduleValues = (mainTimerVal, goblinTimerVal, potionCount, activeLabBoostSecs = getRemainingBoostSeconds(labBoostEndTime), labHelper = labApprentice) => {
 		const now = Date.now();
 		const mainRemSec = getTimerTotalSeconds(mainTimerVal);
 		const goblinRemSec = getTimerTotalSeconds(goblinTimerVal);
+		const helperRemSessionSecs = getRemainingBoostSeconds(labHelper.activeSessionEndTime, now);
 		let nextMainTs = null;
 		let nextMainDate = "";
 		let mainSavedSec = 0;
 		if (mainRemSec > 0) {
-			const realElapsedSec = calc24xRealTimeSeconds(mainRemSec, potionCount, activeLabBoostSecs);
+			const realElapsedSec = calcHelperSessionRealTimeSeconds({
+				remainingUpgradeSeconds: mainRemSec,
+				helperLevel: labHelper.level,
+				activeSessionSeconds: labHelper.assignedSlot === "main" ? helperRemSessionSecs : 0,
+				potionCount,
+				activePotionBoostSeconds: activeLabBoostSecs,
+				potionRate: 24
+			});
 			nextMainTs = now + Math.round(realElapsedSec * 1e3);
 			nextMainDate = formatCompletionDate(nextMainTs);
 			mainSavedSec = Math.max(0, mainRemSec - realElapsedSec);
@@ -13411,7 +13770,14 @@ function App() {
 		let nextGoblinDate = "";
 		let goblinSavedSec = 0;
 		if (goblinRemSec > 0) {
-			const realElapsedSec = calc24xRealTimeSeconds(goblinRemSec, potionCount, activeLabBoostSecs);
+			const realElapsedSec = calcHelperSessionRealTimeSeconds({
+				remainingUpgradeSeconds: goblinRemSec,
+				helperLevel: labHelper.level,
+				activeSessionSeconds: labHelper.assignedSlot === "goblin" ? helperRemSessionSecs : 0,
+				potionCount,
+				activePotionBoostSeconds: activeLabBoostSecs,
+				potionRate: 24
+			});
 			nextGoblinTs = now + Math.round(realElapsedSec * 1e3);
 			nextGoblinDate = formatCompletionDate(nextGoblinTs);
 			goblinSavedSec = Math.max(0, goblinRemSec - realElapsedSec);
@@ -13425,9 +13791,9 @@ function App() {
 			nextLabSavedText: formatSavedSeconds(totalSavedSec)
 		};
 	};
-	const computeLabSchedule = (mainTimerVal, goblinTimerVal, potionCount, targetVillageId = activeAccountId, targetVillageName = getActiveVillageName(activeAccountId), overrideLabBoostSeconds) => {
+	const computeLabSchedule = (mainTimerVal, goblinTimerVal, potionCount, targetVillageId = activeAccountId, targetVillageName = getActiveVillageName(activeAccountId), overrideLabBoostSeconds, overrideLabHelper) => {
 		const activeLabBoostSecs = typeof overrideLabBoostSeconds === "number" ? overrideLabBoostSeconds : getRemainingBoostSeconds(labBoostEndTime);
-		const res = computeLabScheduleValues(mainTimerVal, goblinTimerVal, potionCount, activeLabBoostSecs);
+		const res = computeLabScheduleValues(mainTimerVal, goblinTimerVal, potionCount, activeLabBoostSecs, overrideLabHelper || labApprentice);
 		setTargetLabTimestamp(res.nextMainTs);
 		setLabFormattedDate(res.nextMainDate);
 		setTargetGoblinLabTimestamp(res.nextGoblinTs);
@@ -13494,12 +13860,18 @@ function App() {
 	const clearLabSlot = (slot) => {
 		triggerHaptic(15);
 		const empty = createEmptyTimer();
+		const nextHelper = labApprentice.assignedSlot === slot ? {
+			...labApprentice,
+			assignedSlot: null,
+			activeSessionEndTime: null
+		} : labApprentice;
+		if (labApprentice.assignedSlot === slot) setLabApprentice(nextHelper);
 		if (slot === "main") {
 			setLabTimer(empty);
-			computeLabSchedule(empty, goblinLabTimer, researchPotions);
+			computeLabSchedule(empty, goblinLabTimer, researchPotions, activeAccountId, getActiveVillageName(activeAccountId), void 0, nextHelper);
 		} else {
 			setGoblinLabTimer(empty);
-			computeLabSchedule(labTimer, empty, researchPotions);
+			computeLabSchedule(labTimer, empty, researchPotions, activeAccountId, getActiveVillageName(activeAccountId), void 0, nextHelper);
 		}
 	};
 	const computePetScheduleValues = (petTimerVal, potionCount, activePetBoostSecs = getRemainingBoostSeconds(petBoostEndTime)) => {
@@ -13582,11 +13954,21 @@ function App() {
 		setLockedResults([]);
 		setSavedText("");
 		setShowResult(false);
+		setBuilderApprentice((prev) => ({
+			...prev,
+			assignedSlot: null,
+			activeSessionEndTime: null
+		}));
 		scheduleBuilderNotificationsForVillage(activeAccountId, getActiveVillageName(activeAccountId), []);
 	};
 	const resetBuilderTime = (index) => {
 		triggerHaptic(15);
 		cancelSlotNotification(activeAccountId, `builder_${index}`);
+		if (builderApprentice.assignedSlot === index) setBuilderApprentice((prev) => ({
+			...prev,
+			assignedSlot: null,
+			activeSessionEndTime: null
+		}));
 		setBuilders((prev) => {
 			const next = [...prev];
 			next[index] = createEmptyTimer();
@@ -13605,29 +13987,39 @@ function App() {
 		setShowResult(false);
 		scheduleBuilderNotificationsForVillage(activeAccountId, getActiveVillageName(activeAccountId), []);
 	};
-	const runCalculationWithData = (targetMode, targetNumBuilders, targetBuilders, targetPotionsStr, targetVillageId = activeAccountId, targetVillageName = getActiveVillageName(activeAccountId), overrideBuilderBoostSeconds) => {
+	const runCalculationWithData = (targetMode, targetNumBuilders, targetBuilders, targetPotionsStr, targetVillageId = activeAccountId, targetVillageName = getActiveVillageName(activeAccountId), overrideBuilderBoostSeconds, overrideBuilderHelper) => {
 		const potions = Math.max(0, parseInt(targetPotionsStr, 10) || 0);
 		const activeBuilderBoostSecs = typeof overrideBuilderBoostSeconds === "number" ? overrideBuilderBoostSeconds : getRemainingBoostSeconds(builderBoostEndTime);
-		const activeBuildersCount = targetMode === "single" ? 1 : targetNumBuilders;
+		const bHelper = overrideBuilderHelper || builderApprentice;
 		const calcTimestamp = Date.now();
+		const helperRemSessionSecs = getRemainingBoostSeconds(bHelper.activeSessionEndTime, calcTimestamp);
+		const activeBuildersCount = targetMode === "single" ? 1 : targetNumBuilders;
 		const computedResults = [];
 		let totalSavedSecondsAllBuilders = 0;
 		for (let i = 1; i <= activeBuildersCount; i++) {
-			const b = targetBuilders[i - 1];
+			const slotIdx = i - 1;
+			const b = targetBuilders[slotIdx];
 			if (!b) continue;
 			const totalBuilderSeconds = getTimerTotalSeconds(b);
 			if (totalBuilderSeconds <= 0) continue;
-			const realTimeSeconds = calc10xRealTimeSeconds(totalBuilderSeconds, potions, activeBuilderBoostSecs);
+			const realTimeSeconds = calcHelperSessionRealTimeSeconds({
+				remainingUpgradeSeconds: totalBuilderSeconds,
+				helperLevel: bHelper.level,
+				activeSessionSeconds: bHelper.assignedSlot === slotIdx ? helperRemSessionSecs : 0,
+				potionCount: potions,
+				activePotionBoostSeconds: activeBuilderBoostSecs,
+				potionRate: 10
+			});
 			const targetTimestamp = calcTimestamp + Math.round(realTimeSeconds * 1e3);
 			const formattedDate = formatCompletionDate(targetTimestamp);
 			totalSavedSecondsAllBuilders += Math.max(0, totalBuilderSeconds - realTimeSeconds);
-			const isGoblin = targetMode === "multi" && i === 7;
+			const isGoblin = targetMode !== "single" && i === 7;
 			const slotBadge = isGoblin ? "[GOBLIN]" : `[B${i}]`;
 			const defaultTitle = targetMode === "single" ? "Defense Upgrade" : isGoblin ? "Goblin Builder" : `Builder ${i} Upgrade`;
 			const resolvedFromId = b.rawId ? resolveUpgradeName(b.rawId) : void 0;
 			const finalTitle = resolvedFromId && resolvedFromId !== "Defense Upgrade" ? resolvedFromId : b.upgradeTitle && b.upgradeTitle !== "Defense / Building Upgrade" ? b.upgradeTitle : resolvedFromId || defaultTitle;
 			computedResults.push({
-				builderIndex: i - 1,
+				builderIndex: slotIdx,
 				slotBadge,
 				upgradeTitle: finalTitle,
 				upgradeLevel: b.upgradeLevel,
@@ -13664,6 +14056,172 @@ function App() {
 		triggerHaptic(18);
 		runCalculationWithData(currentMode, numBuilders, builders, potionsInput);
 	};
+	const handleChangeBuilderApprenticeLevel = (nextLevel) => {
+		const clamped = Math.min(8, Math.max(1, nextLevel));
+		const nextHelper = {
+			...builderApprentice,
+			level: clamped
+		};
+		setBuilderApprentice(nextHelper);
+		if (nextHelper.assignedSlot !== null && nextHelper.activeSessionEndTime && nextHelper.activeSessionEndTime > Date.now() && lockedResults.length > 0) runCalculationWithData(currentMode === "single" ? "single" : "multi", numBuilders, builders, potionsInput, activeAccountId, getActiveVillageName(activeAccountId), void 0, nextHelper);
+	};
+	const handleChangeLabApprenticeLevel = (nextLevel) => {
+		const clamped = Math.min(8, Math.max(1, nextLevel));
+		const nextHelper = {
+			...labApprentice,
+			level: clamped
+		};
+		setLabApprentice(nextHelper);
+		if (nextHelper.assignedSlot !== null && nextHelper.activeSessionEndTime && nextHelper.activeSessionEndTime > Date.now()) computeLabSchedule(labTimer, goblinLabTimer, researchPotions, activeAccountId, getActiveVillageName(activeAccountId), void 0, nextHelper);
+	};
+	const getBuilderSlotCurrentRemainingSeconds = (slotIdx) => {
+		const lockedItem = lockedResults.find((r) => r.builderIndex === slotIdx);
+		if (lockedItem && lockedItem.targetTimestamp > Date.now()) {
+			const isBoosted = builderApprentice.assignedSlot === slotIdx && !!builderApprentice.activeSessionEndTime && builderApprentice.activeSessionEndTime > Date.now();
+			return computeTimeParts(lockedItem.targetTimestamp, isBoosted ? builderApprentice.activeSessionEndTime : null, isBoosted ? getHelperSpeedMultiplier(builderApprentice.level) : 1).totalUpgradeSeconds;
+		}
+		return getTimerTotalSeconds(builders[slotIdx] || createEmptyTimer());
+	};
+	const getLabSlotCurrentRemainingSeconds = (slot) => {
+		const targetTs = slot === "main" ? targetLabTimestamp : targetGoblinLabTimestamp;
+		if (targetTs && targetTs > Date.now()) {
+			const isBoosted = labApprentice.assignedSlot === slot && !!labApprentice.activeSessionEndTime && labApprentice.activeSessionEndTime > Date.now();
+			return computeTimeParts(targetTs, isBoosted ? labApprentice.activeSessionEndTime : null, isBoosted ? getHelperSpeedMultiplier(labApprentice.level) : 1).totalUpgradeSeconds;
+		}
+		return getTimerTotalSeconds(slot === "main" ? labTimer : goblinLabTimer);
+	};
+	const handleStartBuilderApprenticeSession = (slotIdx) => {
+		triggerHaptic([
+			15,
+			30,
+			15
+		]);
+		const now = Date.now();
+		const syncedBuilders = builders.map((b, idx) => {
+			const remSec = getBuilderSlotCurrentRemainingSeconds(idx);
+			if (remSec <= 0) return b;
+			const d = Math.floor(remSec / 86400);
+			const h = Math.floor(remSec % 86400 / 3600);
+			const m = Math.floor(remSec % 3600 / 60);
+			const s = remSec % 60;
+			return {
+				...b,
+				d: String(d),
+				h: String(h),
+				m: String(m),
+				s
+			};
+		});
+		const nextNumBuilders = Math.max(numBuilders, slotIdx + 1);
+		const nextHelper = {
+			...builderApprentice,
+			assignedSlot: slotIdx,
+			activeSessionEndTime: now + 36e5,
+			cooldownEndTime: now + 864e5
+		};
+		setBuilders(syncedBuilders);
+		if (nextNumBuilders !== numBuilders) setNumBuilders(nextNumBuilders);
+		setBuilderApprentice(nextHelper);
+		runCalculationWithData("multi", nextNumBuilders, syncedBuilders, potionsInput, activeAccountId, getActiveVillageName(activeAccountId), void 0, nextHelper);
+		const targetLabel = syncedBuilders[slotIdx]?.upgradeTitle || (slotIdx === 6 ? "Goblin Builder" : `Builder ${slotIdx + 1}`);
+		const speedN = getHelperSpeedMultiplier(nextHelper.level);
+		setAssignModalType(null);
+		showToast("success", `👷 Builder's Apprentice boosting ${targetLabel} at ${speedN}x speed for 1h!`);
+	};
+	const handleStartLabApprenticeSession = (slot) => {
+		triggerHaptic([
+			15,
+			30,
+			15
+		]);
+		const now = Date.now();
+		const syncSlotTimer = (curTimer, remSec) => {
+			if (remSec <= 0) return curTimer;
+			const d = Math.floor(remSec / 86400);
+			const h = Math.floor(remSec % 86400 / 3600);
+			const m = Math.floor(remSec % 3600 / 60);
+			const s = remSec % 60;
+			return {
+				...curTimer,
+				d: String(d),
+				h: String(h),
+				m: String(m),
+				s
+			};
+		};
+		const syncedMain = syncSlotTimer(labTimer, getLabSlotCurrentRemainingSeconds("main"));
+		const syncedGoblin = syncSlotTimer(goblinLabTimer, getLabSlotCurrentRemainingSeconds("goblin"));
+		const nextHelper = {
+			...labApprentice,
+			assignedSlot: slot,
+			activeSessionEndTime: now + 36e5,
+			cooldownEndTime: now + 864e5
+		};
+		setLabTimer(syncedMain);
+		setGoblinLabTimer(syncedGoblin);
+		setLabApprentice(nextHelper);
+		computeLabSchedule(syncedMain, syncedGoblin, researchPotions, activeAccountId, getActiveVillageName(activeAccountId), void 0, nextHelper);
+		const targetLabel = (slot === "main" ? syncedMain : syncedGoblin).upgradeTitle || (slot === "main" ? "Troop / Spell Upgrade" : "Goblin Researcher");
+		const speedN = getHelperSpeedMultiplier(nextHelper.level);
+		setAssignModalType(null);
+		showToast("success", `🔬 Lab Apprentice boosting ${targetLabel} at ${speedN}x speed for 1h!`);
+	};
+	const handleBuilderUpgradeFinished = (0, import_react.useCallback)((slotIdx) => {
+		setBuilderApprentice((prev) => {
+			if (prev.assignedSlot !== slotIdx) return prev;
+			return {
+				...prev,
+				assignedSlot: null,
+				activeSessionEndTime: null
+			};
+		});
+	}, []);
+	const handleLabUpgradeFinished = (0, import_react.useCallback)((slot) => {
+		setLabApprentice((prev) => {
+			if (prev.assignedSlot !== slot) return prev;
+			return {
+				...prev,
+				assignedSlot: null,
+				activeSessionEndTime: null
+			};
+		});
+	}, []);
+	const handleBuilderSessionExpire = (0, import_react.useCallback)(() => {
+		setBuilderApprentice((prev) => {
+			if (!prev.activeSessionEndTime) return prev;
+			const now = Date.now();
+			const nextCooldown = prev.cooldownEndTime && prev.cooldownEndTime > now ? prev.cooldownEndTime : prev.activeSessionEndTime + 828e5;
+			return {
+				...prev,
+				activeSessionEndTime: null,
+				cooldownEndTime: nextCooldown
+			};
+		});
+	}, []);
+	const handleBuilderCooldownExpire = (0, import_react.useCallback)(() => {
+		setBuilderApprentice((prev) => ({
+			...prev,
+			cooldownEndTime: null
+		}));
+	}, []);
+	const handleLabSessionExpire = (0, import_react.useCallback)(() => {
+		setLabApprentice((prev) => {
+			if (!prev.activeSessionEndTime) return prev;
+			const now = Date.now();
+			const nextCooldown = prev.cooldownEndTime && prev.cooldownEndTime > now ? prev.cooldownEndTime : prev.activeSessionEndTime + 828e5;
+			return {
+				...prev,
+				activeSessionEndTime: null,
+				cooldownEndTime: nextCooldown
+			};
+		});
+	}, []);
+	const handleLabCooldownExpire = (0, import_react.useCallback)(() => {
+		setLabApprentice((prev) => ({
+			...prev,
+			cooldownEndTime: null
+		}));
+	}, []);
 	const handleBuilderBoostExpire = (0, import_react.useCallback)(() => {
 		setBuilderBoostEndTime(null);
 	}, []);
@@ -13696,6 +14254,19 @@ function App() {
 		const builderBoostSeconds = Math.max(0, Math.floor(Number(data.boosts?.builder_boost) || 0));
 		const labBoostSeconds = Math.max(0, Math.floor(Number(data.boosts?.lab_boost) || 0));
 		const petBoostSeconds = Math.max(0, Math.floor(Number(data.boosts?.pet_boost) || 0));
+		const rawHelpers = Array.isArray(data.helpers) ? data.helpers : [];
+		const rawBuilderApprentice = rawHelpers.find((item) => Number(item?.data ?? item?.id) === 93e6);
+		const rawLabApprentice = rawHelpers.find((item) => Number(item?.data ?? item?.id) === 93000001);
+		const parsedBuilderHelperLvl = typeof rawBuilderApprentice?.lvl === "number" && rawBuilderApprentice.lvl >= 1 ? Math.min(8, Math.max(1, Math.floor(rawBuilderApprentice.lvl))) : builderApprentice.level;
+		const parsedBuilderCooldownSec = Math.max(0, Math.floor(Number(rawBuilderApprentice?.helper_cooldown) || 0));
+		const explicitBuilderSessionSec = Math.max(0, Math.floor(Number(rawBuilderApprentice?.helper_timer ?? rawBuilderApprentice?.timer) || 0));
+		const parsedLabHelperLvl = typeof rawLabApprentice?.lvl === "number" && rawLabApprentice.lvl >= 1 ? Math.min(8, Math.max(1, Math.floor(rawLabApprentice.lvl))) : labApprentice.level;
+		const parsedLabCooldownSec = Math.max(0, Math.floor(Number(rawLabApprentice?.helper_cooldown) || 0));
+		const explicitLabSessionSec = Math.max(0, Math.floor(Number(rawLabApprentice?.helper_timer ?? rawLabApprentice?.timer) || 0));
+		const hasHelperAssignedOnItem = (item) => {
+			if (!item) return false;
+			return item.helper_recurrent === true || item.helper_assigned === true || item.helper === true || Number(item.helper) === 93e6 || Number(item.helper) === 93000001 || typeof item.helper_timer === "number" && item.helper_timer > 0;
+		};
 		const activeBuilderUpgrades = [
 			...Array.isArray(parsedData.buildings) ? parsedData.buildings : [],
 			...Array.isArray(parsedData.traps) ? parsedData.traps : [],
@@ -13707,7 +14278,7 @@ function App() {
 			...Array.isArray(parsedData.siege_machines) ? parsedData.siege_machines : []
 		].filter((item) => item && typeof item.timer === "number" && item.timer > 0);
 		const activePetUpgrades = (Array.isArray(parsedData.pets) ? parsedData.pets : []).filter((item) => item && typeof item.timer === "number" && item.timer > 0);
-		if (activeBuilderUpgrades.length === 0 && activeLabUpgrades.length === 0 && activePetUpgrades.length === 0 && builderBoostSeconds === 0 && labBoostSeconds === 0 && petBoostSeconds === 0) {
+		if (activeBuilderUpgrades.length === 0 && activeLabUpgrades.length === 0 && activePetUpgrades.length === 0 && builderBoostSeconds === 0 && labBoostSeconds === 0 && petBoostSeconds === 0 && rawHelpers.length === 0) {
 			showToast("error", "No active Home Village upgrades found");
 			return;
 		}
@@ -13718,16 +14289,65 @@ function App() {
 		const goblinBuilderItem = activeBuilderUpgrades.find((item) => item.extra === true);
 		const regularBuilderItems = activeBuilderUpgrades.filter((item) => item.extra !== true).slice(0, 6);
 		const nextBuilders = createEmptyBuilders();
+		let detectedBuilderHelperSlot = null;
+		let detectedBuilderItemHelperTimer = 0;
 		regularBuilderItems.forEach((item, idx) => {
 			nextBuilders[idx] = convertRawItemToTimer(item, "Defense Upgrade");
+			if (detectedBuilderHelperSlot === null && hasHelperAssignedOnItem(item)) {
+				detectedBuilderHelperSlot = idx;
+				detectedBuilderItemHelperTimer = Math.max(0, Math.floor(Number(item.helper_timer) || 0));
+			}
 		});
-		if (goblinBuilderItem) nextBuilders[6] = convertRawItemToTimer(goblinBuilderItem, "Defense Upgrade");
+		if (goblinBuilderItem) {
+			nextBuilders[6] = convertRawItemToTimer(goblinBuilderItem, "Defense Upgrade");
+			if (detectedBuilderHelperSlot === null && hasHelperAssignedOnItem(goblinBuilderItem)) {
+				detectedBuilderHelperSlot = 6;
+				detectedBuilderItemHelperTimer = Math.max(0, Math.floor(Number(goblinBuilderItem.helper_timer) || 0));
+			}
+		}
+		let builderActiveSessionSec = 0;
+		if (detectedBuilderHelperSlot !== null) {
+			if (explicitBuilderSessionSec > 0) builderActiveSessionSec = Math.min(3600, explicitBuilderSessionSec);
+			else if (detectedBuilderItemHelperTimer > 0) builderActiveSessionSec = Math.min(3600, detectedBuilderItemHelperTimer);
+			else if (parsedBuilderCooldownSec > 82800) builderActiveSessionSec = Math.min(3600, parsedBuilderCooldownSec - 82800);
+			else if (parsedBuilderCooldownSec === 0) builderActiveSessionSec = 3600;
+		}
+		const nextBuilderApprentice = {
+			id: 93e6,
+			level: parsedBuilderHelperLvl,
+			assignedSlot: detectedBuilderHelperSlot,
+			activeSessionEndTime: builderActiveSessionSec > 0 ? importNow + builderActiveSessionSec * 1e3 : null,
+			cooldownEndTime: parsedBuilderCooldownSec > 0 ? importNow + parsedBuilderCooldownSec * 1e3 : builderActiveSessionSec > 0 ? importNow + 864e5 : null
+		};
 		const totalLoadedBuilders = regularBuilderItems.length + (goblinBuilderItem ? 1 : 0);
 		const nextBuilderSliderCount = goblinBuilderItem ? 7 : Math.max(1, Math.min(6, regularBuilderItems.length || 2));
 		const standardLabItem = activeLabUpgrades.find((item) => item.extra !== true);
 		const goblinLabItem = activeLabUpgrades.find((item) => item.extra === true);
 		const nextLabTimer = standardLabItem ? convertRawItemToTimer(standardLabItem, "Troop / Spell Upgrade") : createEmptyTimer();
 		const nextGoblinLabTimer = goblinLabItem ? convertRawItemToTimer(goblinLabItem, "Goblin Researcher") : createEmptyTimer();
+		let detectedLabHelperSlot = null;
+		let detectedLabItemHelperTimer = 0;
+		if (hasHelperAssignedOnItem(standardLabItem)) {
+			detectedLabHelperSlot = "main";
+			detectedLabItemHelperTimer = Math.max(0, Math.floor(Number(standardLabItem?.helper_timer) || 0));
+		} else if (hasHelperAssignedOnItem(goblinLabItem)) {
+			detectedLabHelperSlot = "goblin";
+			detectedLabItemHelperTimer = Math.max(0, Math.floor(Number(goblinLabItem?.helper_timer) || 0));
+		}
+		let labActiveSessionSec = 0;
+		if (detectedLabHelperSlot !== null) {
+			if (explicitLabSessionSec > 0) labActiveSessionSec = Math.min(3600, explicitLabSessionSec);
+			else if (detectedLabItemHelperTimer > 0) labActiveSessionSec = Math.min(3600, detectedLabItemHelperTimer);
+			else if (parsedLabCooldownSec > 82800) labActiveSessionSec = Math.min(3600, parsedLabCooldownSec - 82800);
+			else if (parsedLabCooldownSec === 0) labActiveSessionSec = 3600;
+		}
+		const nextLabApprentice = {
+			id: 93000001,
+			level: parsedLabHelperLvl,
+			assignedSlot: detectedLabHelperSlot,
+			activeSessionEndTime: labActiveSessionSec > 0 ? importNow + labActiveSessionSec * 1e3 : null,
+			cooldownEndTime: parsedLabCooldownSec > 0 ? importNow + parsedLabCooldownSec * 1e3 : labActiveSessionSec > 0 ? importNow + 864e5 : null
+		};
 		const activePetItem = activePetUpgrades[0];
 		const nextPetTimer = activePetItem ? convertRawItemToTimer(activePetItem, "Active Pet Upgrade") : createEmptyTimer();
 		const targetPotions = builderBoostSeconds > 0 || isAddingNewAccount ? "" : potionsInput;
@@ -13739,8 +14359,8 @@ function App() {
 		const targetVillageId = isAddingNewAccount ? newAccountId : activeAccountId;
 		const targetVillageName = isAddingNewAccount ? newAccountName : getActiveVillageName(activeAccountId);
 		scheduleBoostExpiryNotificationsForVillage(targetVillageId, targetVillageName, nextBuilderBoostEndTime, nextLabBoostEndTime, nextPetBoostEndTime);
-		const { computedResults, computedSavedText } = runCalculationWithData("multi", nextBuilderSliderCount, nextBuilders, targetPotions, targetVillageId, targetVillageName, builderBoostSeconds);
-		const labSched = computeLabSchedule(nextLabTimer, nextGoblinLabTimer, targetResPotions, targetVillageId, targetVillageName, labBoostSeconds);
+		const { computedResults, computedSavedText } = runCalculationWithData("multi", nextBuilderSliderCount, nextBuilders, targetPotions, targetVillageId, targetVillageName, builderBoostSeconds, nextBuilderApprentice);
+		const labSched = computeLabSchedule(nextLabTimer, nextGoblinLabTimer, targetResPotions, targetVillageId, targetVillageName, labBoostSeconds, nextLabApprentice);
 		const petSched = computePetSchedule(nextPetTimer, targetPetPotionsCount, targetVillageId, targetVillageName, petBoostSeconds);
 		setLabTimer(nextLabTimer);
 		setGoblinLabTimer(nextGoblinLabTimer);
@@ -13748,6 +14368,8 @@ function App() {
 		setBuilderBoostEndTime(nextBuilderBoostEndTime);
 		setLabBoostEndTime(nextLabBoostEndTime);
 		setPetBoostEndTime(nextPetBoostEndTime);
+		setBuilderApprentice(nextBuilderApprentice);
+		setLabApprentice(nextLabApprentice);
 		setPotionsInput(targetPotions);
 		setResearchPotions(targetResPotions);
 		setPetPotions(targetPetPotionsCount);
@@ -13779,7 +14401,9 @@ function App() {
 					petSavedText: petSched.nextPetSavedText,
 					builderBoostEndTime: nextBuilderBoostEndTime,
 					labBoostEndTime: nextLabBoostEndTime,
-					petBoostEndTime: nextPetBoostEndTime
+					petBoostEndTime: nextPetBoostEndTime,
+					builderApprentice: nextBuilderApprentice,
+					labApprentice: nextLabApprentice
 				}
 			};
 			setAccounts((prev) => [...prev, newProfile]);
@@ -13801,11 +14425,60 @@ function App() {
 		if (activePetUpgrades.length > 0) summaryParts.push(`${activePetUpgrades.length} pet`);
 		const activeBoostCount = (builderBoostSeconds > 0 ? 1 : 0) + (labBoostSeconds > 0 ? 1 : 0) + (petBoostSeconds > 0 ? 1 : 0);
 		if (activeBoostCount > 0) summaryParts.push(`${activeBoostCount} active boost${activeBoostCount > 1 ? "s" : ""}`);
+		if (detectedBuilderHelperSlot !== null || detectedLabHelperSlot !== null) summaryParts.push("helpers synced");
 		showToast("success", `Loaded ${summaryParts.join(", ")}!`);
 	};
 	const activeBuildersToRender = currentMode === "single" ? 1 : numBuilders;
 	const soonestTargetTimestamp = lockedResults.length > 0 ? Math.min(...lockedResults.map((r) => r.targetTimestamp)) : null;
 	const hasPetTimerInput = getTimerTotalSeconds(petTimer) > 0;
+	const builderHelperTargetName = (() => {
+		if (builderApprentice.assignedSlot === null) return null;
+		const slotIdx = builderApprentice.assignedSlot;
+		const lockedMatch = lockedResults.find((r) => r.builderIndex === slotIdx);
+		if (lockedMatch?.upgradeTitle) return lockedMatch.upgradeTitle;
+		const b = builders[slotIdx];
+		if (b && getTimerTotalSeconds(b) > 0) return b.upgradeTitle || (slotIdx === 6 ? "Goblin Builder" : `Builder ${slotIdx + 1}`);
+		return null;
+	})();
+	const labHelperTargetName = (() => {
+		if (labApprentice.assignedSlot === null) return null;
+		if (labApprentice.assignedSlot === "main") {
+			if (getTimerTotalSeconds(labTimer) > 0 || targetLabTimestamp && targetLabTimestamp > Date.now()) return labTimer.upgradeTitle || "Troop / Spell Upgrade";
+		} else if (labApprentice.assignedSlot === "goblin") {
+			if (getTimerTotalSeconds(goblinLabTimer) > 0 || targetGoblinLabTimestamp && targetGoblinLabTimestamp > Date.now()) return goblinLabTimer.upgradeTitle || "Goblin Researcher";
+		}
+		return null;
+	})();
+	const isBuilderHelperWorking = builderApprentice.assignedSlot !== null && builderApprentice.activeSessionEndTime !== null && builderApprentice.activeSessionEndTime > Date.now() && builderHelperTargetName !== null;
+	const isLabHelperWorking = labApprentice.assignedSlot !== null && labApprentice.activeSessionEndTime !== null && labApprentice.activeSessionEndTime > Date.now() && labHelperTargetName !== null;
+	const activeBuilderTargetsForModal = Array.from({ length: 7 }, (_, idx) => {
+		const remSec = getBuilderSlotCurrentRemainingSeconds(idx);
+		if (remSec <= 0) return null;
+		const b = builders[idx];
+		const lockedItem = lockedResults.find((r) => r.builderIndex === idx);
+		const isGoblin = idx === 6;
+		return {
+			slotIdx: idx,
+			slotBadge: isGoblin ? "[GOBLIN]" : `[B${idx + 1}]`,
+			name: lockedItem?.upgradeTitle || b?.upgradeTitle || (isGoblin ? "Goblin Builder" : `Builder ${idx + 1} Upgrade`),
+			level: lockedItem?.upgradeLevel ?? b?.upgradeLevel,
+			remainingSeconds: remSec,
+			isGoblin
+		};
+	}).filter((item) => item !== null);
+	const activeLabTargetsForModal = ["main", "goblin"].map((slot) => {
+		const remSec = getLabSlotCurrentRemainingSeconds(slot);
+		if (remSec <= 0) return null;
+		const t = slot === "main" ? labTimer : goblinLabTimer;
+		return {
+			slot,
+			slotBadge: slot === "main" ? "[LAB]" : "[GOBLIN LAB]",
+			name: t.upgradeTitle || (slot === "main" ? "Troop / Spell Upgrade" : "Goblin Researcher"),
+			level: t.upgradeLevel,
+			remainingSeconds: remSec,
+			isGoblin: slot === "goblin"
+		};
+	}).filter((item) => item !== null);
 	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 		className: "min-h-dvh w-full flex flex-col items-center justify-center p-3 sm:p-6 overflow-y-auto overflow-x-hidden",
 		children: [
@@ -13930,342 +14603,151 @@ function App() {
 					}),
 					activeTab === "builders" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 						className: "tab-panel-fade relative z-10",
-						children: [
-							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-								className: "flex bg-black/40 rounded-xl p-1 mb-6 border border-white/10",
-								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "flex bg-black/40 rounded-xl p-1 mb-6 border border-white/10 gap-1",
+							children: [
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 									id: "btn-mode-single",
 									type: "button",
 									onClick: () => setMode("single"),
-									className: `tactile flex-1 py-2.5 text-sm font-bold rounded-lg transition-all cursor-pointer ${currentMode === "single" ? "bg-white/20 text-white shadow-sm" : "text-gray-300 hover:text-white"}`,
+									className: `tactile flex-1 py-2.5 text-xs sm:text-sm font-bold rounded-lg transition-all cursor-pointer ${currentMode === "single" ? "bg-white/20 text-white shadow-sm" : "text-gray-300 hover:text-white"}`,
 									children: "Single Builder"
-								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+								}),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 									id: "btn-mode-multi",
 									type: "button",
 									onClick: () => setMode("multi"),
-									className: `tactile flex-1 py-2.5 text-sm font-bold rounded-lg transition-all cursor-pointer ${currentMode === "multi" ? "bg-white/20 text-white shadow-sm" : "text-gray-300 hover:text-white"}`,
+									className: `tactile flex-1 py-2.5 text-xs sm:text-sm font-bold rounded-lg transition-all cursor-pointer ${currentMode === "multi" ? "bg-white/20 text-white shadow-sm" : "text-gray-300 hover:text-white"}`,
 									children: "All Builders"
-								})]
-							}),
-							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-								className: "space-y-6",
-								children: [
-									/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-										id: "multi-builders-config",
-										className: `${currentMode === "single" ? "hidden" : ""} bg-black/30 p-4 rounded-2xl border border-white/10`,
-										children: [
-											/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-												className: "flex justify-between items-center mb-3",
-												children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", {
-													className: "text-base text-[#f8fafc] font-bold",
-													children: "Active Builders"
-												}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-													className: "flex items-center gap-2",
-													children: [
-														/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-															type: "button",
-															onClick: () => handleBuilderCountChange(numBuilders - 1),
-															className: "tactile w-7 h-7 rounded-lg bg-white/10 hover:bg-white/20 text-white font-bold flex items-center justify-center cursor-pointer border border-white/10",
-															"aria-label": "Decrease builders",
-															children: "−"
-														}),
-														/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-															className: `font-extrabold bg-black/50 px-3 py-1 rounded-lg shadow-inner border ${numBuilders === 7 ? "text-[#22c55e] border-emerald-500/40" : "text-[#fbbf24] border-amber-400/20"}`,
-															children: [
-																/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-																	id: "builders-count-label",
-																	children: numBuilders
-																}),
-																" ",
-																numBuilders === 7 ? "👺" : "👷"
-															]
-														}),
-														/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-															type: "button",
-															onClick: () => handleBuilderCountChange(numBuilders + 1),
-															className: "tactile w-7 h-7 rounded-lg bg-white/10 hover:bg-white/20 text-white font-bold flex items-center justify-center cursor-pointer border border-white/10",
-															"aria-label": "Increase builders",
-															children: "+"
-														})
-													]
-												})]
-											}),
-											/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-												type: "range",
-												id: "input-builders",
-												min: "1",
-												max: "7",
-												value: numBuilders,
-												onChange: (e) => handleBuilderCountChange(parseInt(e.target.value, 10)),
-												className: "w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-[#EC4899]"
-											}),
-											/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-												className: "flex justify-between text-[11px] font-semibold text-gray-300 mt-2 px-0.5",
-												children: [
-													/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "1 Builder" }),
-													/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "6 Builders" }),
-													/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-														className: numBuilders === 7 ? "text-[#22c55e] font-bold" : "text-emerald-400/80",
-														children: "7: Goblin 👺"
-													})
-												]
-											})
-										]
-									}),
-									/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-										id: "time-inputs-container",
-										className: "space-y-4",
-										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-											className: "flex items-center justify-between",
-											children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-												className: "text-xs uppercase tracking-wider text-[#fbbf24] font-extrabold",
-												children: "Upgrade Timers"
-											}), builders.slice(0, activeBuildersToRender).some((b) => b.d || b.h || b.m) && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
-												type: "button",
-												onClick: resetAllTimes,
-												className: "tactile text-xs font-bold text-elixir hover:text-pink-300 transition flex items-center gap-1 cursor-pointer bg-pink-500/15 hover:bg-pink-500/25 px-2.5 py-1 rounded-lg border border-pink-500/30",
-												title: "Reset all days, hours, and minutes",
-												children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("svg", {
-													className: "w-3.5 h-3.5",
-													fill: "none",
-													stroke: "currentColor",
-													viewBox: "0 0 24 24",
-													children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", {
-														strokeLinecap: "round",
-														strokeLinejoin: "round",
-														strokeWidth: "2",
-														d: "M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-													})
-												}), "Reset All"]
-											})]
-										}), Array.from({ length: activeBuildersToRender }, (_, idx) => {
-											const i = idx + 1;
-											const isGoblin = currentMode === "multi" && i === 7;
-											const builderVal = builders[idx] || {
-												d: "",
-												h: "",
-												m: ""
-											};
-											const isHero = !isGoblin && !!builderVal.rawId?.startsWith("28");
-											const slotBadgeText = isGoblin ? "[GOBLIN]" : `[B${i}]`;
-											const defaultTitle = currentMode === "single" ? "Remaining Time" : isGoblin ? "Goblin Builder" : `Builder ${i}`;
-											const displayTitle = builderVal.upgradeTitle || defaultTitle;
-											const accentClass = isGoblin ? "goblin-card accent-goblin" : isHero ? "builder-card accent-hero" : "builder-card accent-gold";
-											const badgeClass = isGoblin ? "slot-badge-goblin" : isHero ? "slot-badge-hero" : "slot-badge-regular";
-											const hasThisBuilderTime = !!(builderVal.d || builderVal.h || builderVal.m || builderVal.upgradeTitle);
-											return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-												className: `rounded-2xl p-4 ${accentClass}`,
-												children: [
-													/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-														className: "builder-header-sep flex flex-wrap justify-between items-center gap-2",
-														children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-															className: "flex flex-wrap items-center gap-2",
-															children: [
-																/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-																	className: badgeClass,
-																	children: slotBadgeText
-																}),
-																/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-																	className: "upgrade-title",
-																	children: displayTitle
-																}),
-																typeof builderVal.upgradeLevel === "number" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
-																	className: isGoblin ? "lvl-chip-goblin" : "lvl-chip",
-																	children: ["LVL ", builderVal.upgradeLevel]
-																})
-															]
-														}), hasThisBuilderTime && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-															type: "button",
-															onClick: () => resetBuilderTime(idx),
-															className: "tactile text-xs font-bold text-gray-200 hover:text-elixir transition flex items-center gap-1 px-2 py-0.5 rounded-md bg-white/10 hover:bg-white/15 cursor-pointer",
-															title: "Clear this builder's time",
-															children: "✕ Clear"
-														})]
-													}),
-													/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-														className: "grid grid-cols-3 gap-3",
-														children: [
-															/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-																className: "flex flex-col",
-																children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-																	type: "number",
-																	id: `input-d-${i}`,
-																	inputMode: "numeric",
-																	value: builderVal.d,
-																	onChange: (e) => handleBuilderTimeChange(idx, "d", e.target.value),
-																	placeholder: "0",
-																	min: "0",
-																	max: "999",
-																	className: `glass-input ${isGoblin ? "goblin-input" : ""} w-full rounded-xl py-3 px-2 text-center text-xl font-bold placeholder-gray-500`
-																}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-																	className: "text-xs font-semibold text-gray-200 text-center mt-1",
-																	children: "Days"
-																})]
-															}),
-															/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-																className: "flex flex-col",
-																children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-																	type: "number",
-																	id: `input-h-${i}`,
-																	inputMode: "numeric",
-																	value: builderVal.h,
-																	onChange: (e) => handleBuilderTimeChange(idx, "h", e.target.value),
-																	placeholder: "0",
-																	min: "0",
-																	max: "24",
-																	className: `glass-input ${isGoblin ? "goblin-input" : ""} w-full rounded-xl py-3 px-2 text-center text-xl font-bold placeholder-gray-500`
-																}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-																	className: "text-xs font-semibold text-gray-200 text-center mt-1",
-																	children: "Hours"
-																})]
-															}),
-															/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-																className: "flex flex-col",
-																children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-																	type: "number",
-																	id: `input-m-${i}`,
-																	inputMode: "numeric",
-																	value: builderVal.m,
-																	onChange: (e) => handleBuilderTimeChange(idx, "m", e.target.value),
-																	placeholder: "0",
-																	min: "0",
-																	max: "60",
-																	className: `glass-input ${isGoblin ? "goblin-input" : ""} w-full rounded-xl py-3 px-2 text-center text-xl font-bold placeholder-gray-500`
-																}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-																	className: "text-xs font-semibold text-gray-200 text-center mt-1",
-																	children: "Mins"
-																})]
-															})
-														]
-													}),
-													/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-														className: "flex flex-wrap items-center gap-1.5 mt-3 pt-2.5 border-t border-white/10",
-														children: [[
-															{
-																label: "+6h",
-																d: 0,
-																h: 6
-															},
-															{
-																label: "+12h",
-																d: 0,
-																h: 12
-															},
-															{
-																label: "+1d",
-																d: 1,
-																h: 0
-															},
-															{
-																label: "+3d",
-																d: 3,
-																h: 0
-															},
-															{
-																label: "+5d",
-																d: 5,
-																h: 0
-															},
-															{
-																label: "+7d",
-																d: 7,
-																h: 0
-															}
-														].map((preset) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-															type: "button",
-															onClick: () => applyPresetToBuilder(idx, preset.d, preset.h),
-															className: `tactile text-xs font-bold px-2.5 py-1 rounded-lg border cursor-pointer ${isGoblin ? "bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-200 border-emerald-500/30" : "bg-white/10 hover:bg-white/20 text-[#f8fafc] border-white/15"}`,
-															children: preset.label
-														}, preset.label)), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-															type: "button",
-															onClick: () => resetBuilderTime(idx),
-															className: "tactile text-xs font-bold px-2.5 py-1 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 ml-auto cursor-pointer",
-															children: "Clear"
-														})]
-													})
-												]
-											}, i);
-										})]
-									}),
-									/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-										className: "builder-card accent-gold rounded-2xl p-4",
-										children: [
-											/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
-												className: "block text-base text-[#f8fafc] mb-2.5 font-extrabold flex justify-between items-center",
-												children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-													className: "flex items-center gap-2",
-													children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "🧪 Builder Potions Used" })
-												}), potionsInput && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-													type: "button",
-													onClick: () => {
-														triggerHaptic(15);
-														setPotionsInput("");
-													},
-													className: "tactile text-xs font-bold text-gray-300 hover:text-elixir transition cursor-pointer bg-white/10 px-2 py-0.5 rounded-md",
-													children: "Clear"
-												})]
-											}),
-											/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-												className: "flex items-center gap-2.5",
+								}),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+									id: "btn-mode-helpers",
+									type: "button",
+									onClick: () => setMode("helpers"),
+									className: `tactile flex-1 py-2.5 text-xs sm:text-sm font-bold rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 ${currentMode === "helpers" ? "bg-emerald-500/20 text-emerald-300 border border-emerald-400/40 shadow-sm" : "text-gray-300 hover:text-white"}`,
+									children: [(isBuilderHelperWorking || isLabHelperWorking) && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+										className: "helper-pulse-dot",
+										title: "Apprentice Active"
+									}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Helpers" })]
+								})
+							]
+						}), currentMode === "helpers" ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "tab-panel-fade space-y-4",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(HelperObsidianCard, {
+								helperId: 93e6,
+								icon: "👷",
+								title: "Builder's Apprentice",
+								subtitle: "Works on Home Village Buildings, Defenses & Heroes (1h Active Session)",
+								accentVariant: "gold",
+								level: builderApprentice.level,
+								targetName: builderHelperTargetName,
+								activeSessionEndTime: builderApprentice.activeSessionEndTime,
+								cooldownEndTime: builderApprentice.cooldownEndTime,
+								onChangeLevel: handleChangeBuilderApprenticeLevel,
+								onOpenAssignModal: () => {
+									triggerHaptic(15);
+									setAssignModalType("builder");
+								},
+								onSessionExpire: handleBuilderSessionExpire,
+								onCooldownExpire: handleBuilderCooldownExpire
+							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)(HelperObsidianCard, {
+								helperId: 93000001,
+								icon: "🔬",
+								title: "Lab Apprentice",
+								subtitle: "Works on Laboratory Troops, Spells & Siege Machines (1h Active Session)",
+								accentVariant: "lab",
+								level: labApprentice.level,
+								targetName: labHelperTargetName,
+								activeSessionEndTime: labApprentice.activeSessionEndTime,
+								cooldownEndTime: labApprentice.cooldownEndTime,
+								onChangeLevel: handleChangeLabApprenticeLevel,
+								onOpenAssignModal: () => {
+									triggerHaptic(15);
+									setAssignModalType("lab");
+								},
+								onSessionExpire: handleLabSessionExpire,
+								onCooldownExpire: handleLabCooldownExpire
+							})]
+						}, "subtab-helpers") : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "space-y-6",
+							children: [
+								/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+									id: "multi-builders-config",
+									className: `${currentMode === "single" ? "hidden" : ""} bg-black/30 p-4 rounded-2xl border border-white/10`,
+									children: [
+										/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+											className: "flex justify-between items-center mb-3",
+											children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", {
+												className: "text-base text-[#f8fafc] font-bold",
+												children: "Active Builders"
+											}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+												className: "flex items-center gap-2",
 												children: [
 													/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 														type: "button",
-														onClick: () => adjustPotions(-1),
-														className: "tactile glass-input w-12 h-12 rounded-xl text-xl font-extrabold text-white hover:bg-white/15 flex items-center justify-center cursor-pointer",
-														"aria-label": "Decrease potions",
+														onClick: () => handleBuilderCountChange(numBuilders - 1),
+														className: "tactile w-7 h-7 rounded-lg bg-white/10 hover:bg-white/20 text-white font-bold flex items-center justify-center cursor-pointer border border-white/10",
+														"aria-label": "Decrease builders",
 														children: "−"
 													}),
-													/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-														className: "relative flex-1",
-														children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-															type: "number",
-															id: "input-potions",
-															inputMode: "numeric",
-															value: potionsInput,
-															onChange: (e) => handlePotionsChange(e.target.value),
-															placeholder: "0",
-															min: "0",
-															max: "999",
-															className: "glass-input w-full rounded-xl py-3 px-3 text-center text-xl font-extrabold placeholder-gray-500"
-														})
+													/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+														className: `font-extrabold bg-black/50 px-3 py-1 rounded-lg shadow-inner border ${numBuilders === 7 ? "text-[#22c55e] border-emerald-500/40" : "text-[#fbbf24] border-amber-400/20"}`,
+														children: [
+															/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+																id: "builders-count-label",
+																children: numBuilders
+															}),
+															" ",
+															numBuilders === 7 ? "👺" : "👷"
+														]
 													}),
 													/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 														type: "button",
-														onClick: () => adjustPotions(1),
-														className: "tactile glass-input w-12 h-12 rounded-xl text-xl font-extrabold text-[#fbbf24] hover:bg-white/15 flex items-center justify-center cursor-pointer",
-														"aria-label": "Increase potions",
+														onClick: () => handleBuilderCountChange(numBuilders + 1),
+														className: "tactile w-7 h-7 rounded-lg bg-white/10 hover:bg-white/20 text-white font-bold flex items-center justify-center cursor-pointer border border-white/10",
+														"aria-label": "Increase builders",
 														children: "+"
 													})
 												]
-											}),
-											/* @__PURE__ */ (0, import_jsx_runtime.jsx)(ActiveBoostHudBadge, {
-												boostEndTime: builderBoostEndTime,
-												variant: "builders",
-												onExpire: handleBuilderBoostExpire
-											}),
-											/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-												className: "mt-3 flex justify-center",
-												children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-													className: "builder-speed-pill",
-													children: "10x Speed Boost (Saves 9h per potion)"
+											})]
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+											type: "range",
+											id: "input-builders",
+											min: "1",
+											max: "7",
+											value: numBuilders,
+											onChange: (e) => handleBuilderCountChange(parseInt(e.target.value, 10)),
+											className: "w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-[#EC4899]"
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+											className: "flex justify-between text-[11px] font-semibold text-gray-300 mt-2 px-0.5",
+											children: [
+												/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "1 Builder" }),
+												/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "6 Builders" }),
+												/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+													className: numBuilders === 7 ? "text-[#22c55e] font-bold" : "text-emerald-400/80",
+													children: "7: Goblin 👺"
 												})
-											})
-										]
-									}),
-									/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-										className: "flex gap-2.5 mt-4",
-										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-											type: "button",
-											onClick: calculateTime,
-											className: "btn-calculate tactile flex-1 text-white font-bold text-lg rounded-xl py-4 tracking-wide shadow-lg cursor-pointer",
-											children: "Calculate Finish Time"
-										}), (builders.slice(0, activeBuildersToRender).some((b) => b.d || b.h || b.m) || lockedResults.length > 0) && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+											]
+										})
+									]
+								}),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+									id: "time-inputs-container",
+									className: "space-y-4",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+										className: "flex items-center justify-between",
+										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+											className: "text-xs uppercase tracking-wider text-[#fbbf24] font-extrabold",
+											children: "Upgrade Timers"
+										}), builders.slice(0, activeBuildersToRender).some((b) => b.d || b.h || b.m) && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
 											type: "button",
 											onClick: resetAllTimes,
-											className: "tactile glass-input hover:border-pink-500/50 hover:bg-pink-500/10 text-gray-200 hover:text-white px-4 rounded-xl flex flex-col items-center justify-center gap-0.5 transition cursor-pointer",
+											className: "tactile text-xs font-bold text-elixir hover:text-pink-300 transition flex items-center gap-1 cursor-pointer bg-pink-500/15 hover:bg-pink-500/25 px-2.5 py-1 rounded-lg border border-pink-500/30",
 											title: "Reset all days, hours, and minutes",
 											children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("svg", {
-												className: "w-5 h-5 text-gray-200",
+												className: "w-3.5 h-3.5",
 												fill: "none",
 												stroke: "currentColor",
 												viewBox: "0 0 24 24",
@@ -14275,99 +14757,351 @@ function App() {
 													strokeWidth: "2",
 													d: "M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
 												})
-											}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-												className: "text-[10px] font-bold uppercase tracking-wider text-gray-200",
-												children: "Reset"
-											})]
+											}), "Reset All"]
 										})]
-									})
-								]
-							}),
-							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-								id: "results-container",
-								className: `${showResult && lockedResults.length > 0 ? "show-result" : "hidden-result"} mt-8 pt-6 border-t border-white/15`,
-								children: [
-									/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-										className: "flex items-center justify-between mb-3",
-										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-											className: "flex items-center gap-1.5",
-											children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "h-2 w-2 rounded-full bg-[#22c55e] animate-pulse" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-												className: "text-xs font-extrabold uppercase tracking-wider text-[#f8fafc]",
-												children: "Locked Finish Schedule"
+									}), Array.from({ length: activeBuildersToRender }, (_, idx) => {
+										const i = idx + 1;
+										const isGoblin = currentMode === "multi" && i === 7;
+										const builderVal = builders[idx] || {
+											d: "",
+											h: "",
+											m: ""
+										};
+										const isHero = !isGoblin && !!builderVal.rawId?.startsWith("28");
+										const slotBadgeText = isGoblin ? "[GOBLIN]" : `[B${i}]`;
+										const defaultTitle = currentMode === "single" ? "Remaining Time" : isGoblin ? "Goblin Builder" : `Builder ${i}`;
+										const displayTitle = builderVal.upgradeTitle || defaultTitle;
+										const accentClass = isGoblin ? "goblin-card accent-goblin" : isHero ? "builder-card accent-hero" : "builder-card accent-gold";
+										const badgeClass = isGoblin ? "slot-badge-goblin" : isHero ? "slot-badge-hero" : "slot-badge-regular";
+										const hasThisBuilderTime = !!(builderVal.d || builderVal.h || builderVal.m || builderVal.upgradeTitle);
+										const isApprenticeActiveHere = isBuilderHelperWorking && builderApprentice.assignedSlot === idx;
+										return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+											className: `rounded-2xl p-4 ${accentClass}`,
+											children: [
+												/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+													className: "builder-header-sep flex flex-wrap justify-between items-center gap-2",
+													children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+														className: "flex flex-wrap items-center gap-2",
+														children: [
+															/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+																className: badgeClass,
+																children: slotBadgeText
+															}),
+															/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+																className: "upgrade-title",
+																children: displayTitle
+															}),
+															typeof builderVal.upgradeLevel === "number" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+																className: isGoblin ? "lvl-chip-goblin" : "lvl-chip",
+																children: ["LVL ", builderVal.upgradeLevel]
+															}),
+															isApprenticeActiveHere && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+																className: "helper-pulse-dot",
+																title: "Apprentice Active"
+															})
+														]
+													}), hasThisBuilderTime && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+														type: "button",
+														onClick: () => resetBuilderTime(idx),
+														className: "tactile text-xs font-bold text-gray-200 hover:text-elixir transition flex items-center gap-1 px-2 py-0.5 rounded-md bg-white/10 hover:bg-white/15 cursor-pointer",
+														title: "Clear this builder's time",
+														children: "✕ Clear"
+													})]
+												}),
+												/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+													className: "grid grid-cols-3 gap-3",
+													children: [
+														/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+															className: "flex flex-col",
+															children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+																type: "number",
+																id: `input-d-${i}`,
+																inputMode: "numeric",
+																value: builderVal.d,
+																onChange: (e) => handleBuilderTimeChange(idx, "d", e.target.value),
+																placeholder: "0",
+																min: "0",
+																max: "999",
+																className: `glass-input ${isGoblin ? "goblin-input" : ""} w-full rounded-xl py-3 px-2 text-center text-xl font-bold placeholder-gray-500`
+															}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+																className: "text-xs font-semibold text-gray-200 text-center mt-1",
+																children: "Days"
+															})]
+														}),
+														/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+															className: "flex flex-col",
+															children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+																type: "number",
+																id: `input-h-${i}`,
+																inputMode: "numeric",
+																value: builderVal.h,
+																onChange: (e) => handleBuilderTimeChange(idx, "h", e.target.value),
+																placeholder: "0",
+																min: "0",
+																max: "24",
+																className: `glass-input ${isGoblin ? "goblin-input" : ""} w-full rounded-xl py-3 px-2 text-center text-xl font-bold placeholder-gray-500`
+															}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+																className: "text-xs font-semibold text-gray-200 text-center mt-1",
+																children: "Hours"
+															})]
+														}),
+														/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+															className: "flex flex-col",
+															children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+																type: "number",
+																id: `input-m-${i}`,
+																inputMode: "numeric",
+																value: builderVal.m,
+																onChange: (e) => handleBuilderTimeChange(idx, "m", e.target.value),
+																placeholder: "0",
+																min: "0",
+																max: "60",
+																className: `glass-input ${isGoblin ? "goblin-input" : ""} w-full rounded-xl py-3 px-2 text-center text-xl font-bold placeholder-gray-500`
+															}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+																className: "text-xs font-semibold text-gray-200 text-center mt-1",
+																children: "Mins"
+															})]
+														})
+													]
+												}),
+												/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+													className: "flex flex-wrap items-center gap-1.5 mt-3 pt-2.5 border-t border-white/10",
+													children: [[
+														{
+															label: "+6h",
+															d: 0,
+															h: 6
+														},
+														{
+															label: "+12h",
+															d: 0,
+															h: 12
+														},
+														{
+															label: "+1d",
+															d: 1,
+															h: 0
+														},
+														{
+															label: "+3d",
+															d: 3,
+															h: 0
+														},
+														{
+															label: "+5d",
+															d: 5,
+															h: 0
+														},
+														{
+															label: "+7d",
+															d: 7,
+															h: 0
+														}
+													].map((preset) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+														type: "button",
+														onClick: () => applyPresetToBuilder(idx, preset.d, preset.h),
+														className: `tactile text-xs font-bold px-2.5 py-1 rounded-lg border cursor-pointer ${isGoblin ? "bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-200 border-emerald-500/30" : "bg-white/10 hover:bg-white/20 text-[#f8fafc] border-white/15"}`,
+														children: preset.label
+													}, preset.label)), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+														type: "button",
+														onClick: () => resetBuilderTime(idx),
+														className: "tactile text-xs font-bold px-2.5 py-1 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 ml-auto cursor-pointer",
+														children: "Clear"
+													})]
+												})
+											]
+										}, i);
+									})]
+								}),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+									className: "builder-card accent-gold rounded-2xl p-4",
+									children: [
+										/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
+											className: "block text-base text-[#f8fafc] mb-2.5 font-extrabold flex justify-between items-center",
+											children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+												className: "flex items-center gap-2",
+												children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "🧪 Builder Potions Used" })
+											}), potionsInput && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+												type: "button",
+												onClick: () => {
+													triggerHaptic(15);
+													setPotionsInput("");
+												},
+												className: "tactile text-xs font-bold text-gray-300 hover:text-elixir transition cursor-pointer bg-white/10 px-2 py-0.5 rounded-md",
+												children: "Clear"
 											})]
-										}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-											type: "button",
-											onClick: unlockAndEditTimers,
-											className: "tactile text-xs font-bold text-[#fbbf24] hover:text-amber-300 bg-amber-500/15 hover:bg-amber-500/25 border border-amber-400/30 px-2.5 py-1 rounded-lg cursor-pointer",
-											children: "Reset / Edit Timers"
-										})]
-									}),
-									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-										id: "results-content",
-										className: "space-y-3",
-										children: lockedResults.map((item, idx) => {
-											const isFinishingNext = lockedResults.length > 1 && soonestTargetTimestamp !== null && item.targetTimestamp === soonestTargetTimestamp;
-											const isHero = !item.isGoblin && !!item.rawId?.startsWith("28");
-											const cardAccentClass = item.isGoblin ? "goblin-card accent-goblin" : isHero ? "bg-black/40 border-white/10 accent-hero" : "bg-black/40 border-white/10 accent-gold";
-											const badgeClass = item.isGoblin ? "slot-badge-goblin" : isHero ? "slot-badge-hero" : "slot-badge-regular";
-											return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-												className: `rounded-2xl p-4 border flex flex-col ${cardAccentClass}`,
-												children: [
-													/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-														className: "builder-header-sep flex flex-wrap items-center justify-between gap-2",
-														children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-															className: "flex flex-wrap items-center gap-2",
-															children: [
-																/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-																	className: badgeClass,
-																	children: item.slotBadge
-																}),
-																/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-																	className: "upgrade-title",
-																	children: item.upgradeTitle
-																}),
-																typeof item.upgradeLevel === "number" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
-																	className: item.isGoblin ? "lvl-chip-goblin" : "lvl-chip",
-																	children: ["LVL ", item.upgradeLevel]
-																})
-															]
-														}), isFinishingNext && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-															className: "text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-md bg-amber-500/20 text-[#fbbf24] border border-amber-400/40",
-															children: "NEXT FREE"
-														})]
-													}),
-													/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-														className: "flex items-baseline gap-2 mb-3",
-														children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-															className: "text-[10px] uppercase tracking-wider text-gray-300 font-bold",
-															children: "Completes On:"
-														}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-															className: "text-base font-extrabold text-gold",
-															children: item.formattedDate
-														})]
-													}),
-													/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-														className: "pt-2.5 border-t border-white/10",
-														children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(LiveHudTicker, { targetTimestamp: item.targetTimestamp })
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+											className: "flex items-center gap-2.5",
+											children: [
+												/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+													type: "button",
+													onClick: () => adjustPotions(-1),
+													className: "tactile glass-input w-12 h-12 rounded-xl text-xl font-extrabold text-white hover:bg-white/15 flex items-center justify-center cursor-pointer",
+													"aria-label": "Decrease potions",
+													children: "−"
+												}),
+												/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+													className: "relative flex-1",
+													children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+														type: "number",
+														id: "input-potions",
+														inputMode: "numeric",
+														value: potionsInput,
+														onChange: (e) => handlePotionsChange(e.target.value),
+														placeholder: "0",
+														min: "0",
+														max: "999",
+														className: "glass-input w-full rounded-xl py-3 px-3 text-center text-xl font-extrabold placeholder-gray-500"
 													})
-												]
-											}, `${item.builderIndex}-${item.targetTimestamp}-${idx}`);
+												}),
+												/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+													type: "button",
+													onClick: () => adjustPotions(1),
+													className: "tactile glass-input w-12 h-12 rounded-xl text-xl font-extrabold text-[#fbbf24] hover:bg-white/15 flex items-center justify-center cursor-pointer",
+													"aria-label": "Increase potions",
+													children: "+"
+												})
+											]
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)(ActiveBoostHudBadge, {
+											boostEndTime: builderBoostEndTime,
+											variant: "builders",
+											onExpire: handleBuilderBoostExpire
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+											className: "mt-3 flex justify-center",
+											children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+												className: "builder-speed-pill",
+												children: "10x Speed Boost (Saves 9h per potion)"
+											})
 										})
-									}),
-									/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-										className: "bg-black/40 rounded-2xl p-4 mt-4 border border-white/10 flex justify-between items-center",
-										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
-											className: "text-xs font-bold text-gray-200 uppercase tracking-wider",
-											children: "Total Time Saved"
-										}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-											id: "result-saved",
-											className: "text-lg font-extrabold text-elixir",
-											children: savedText
+									]
+								}),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+									className: "flex gap-2.5 mt-4",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+										type: "button",
+										onClick: calculateTime,
+										className: "btn-calculate tactile flex-1 text-white font-bold text-lg rounded-xl py-4 tracking-wide shadow-lg cursor-pointer",
+										children: "Calculate Finish Time"
+									}), (builders.slice(0, activeBuildersToRender).some((b) => b.d || b.h || b.m) || lockedResults.length > 0) && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+										type: "button",
+										onClick: resetAllTimes,
+										className: "tactile glass-input hover:border-pink-500/50 hover:bg-pink-500/10 text-gray-200 hover:text-white px-4 rounded-xl flex flex-col items-center justify-center gap-0.5 transition cursor-pointer",
+										title: "Reset all days, hours, and minutes",
+										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("svg", {
+											className: "w-5 h-5 text-gray-200",
+											fill: "none",
+											stroke: "currentColor",
+											viewBox: "0 0 24 24",
+											children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", {
+												strokeLinecap: "round",
+												strokeLinejoin: "round",
+												strokeWidth: "2",
+												d: "M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+											})
+										}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+											className: "text-[10px] font-bold uppercase tracking-wider text-gray-200",
+											children: "Reset"
 										})]
+									})]
+								})
+							]
+						}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							id: "results-container",
+							className: `${showResult && lockedResults.length > 0 ? "show-result" : "hidden-result"} mt-8 pt-6 border-t border-white/15`,
+							children: [
+								/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+									className: "flex items-center justify-between mb-3",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+										className: "flex items-center gap-1.5",
+										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "h-2 w-2 rounded-full bg-[#22c55e] animate-pulse" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+											className: "text-xs font-extrabold uppercase tracking-wider text-[#f8fafc]",
+											children: "Locked Finish Schedule"
+										})]
+									}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+										type: "button",
+										onClick: unlockAndEditTimers,
+										className: "tactile text-xs font-bold text-[#fbbf24] hover:text-amber-300 bg-amber-500/15 hover:bg-amber-500/25 border border-amber-400/30 px-2.5 py-1 rounded-lg cursor-pointer",
+										children: "Reset / Edit Timers"
+									})]
+								}),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+									id: "results-content",
+									className: "space-y-3",
+									children: lockedResults.map((item, idx) => {
+										const isFinishingNext = lockedResults.length > 1 && soonestTargetTimestamp !== null && item.targetTimestamp === soonestTargetTimestamp;
+										const isHero = !item.isGoblin && !!item.rawId?.startsWith("28");
+										const cardAccentClass = item.isGoblin ? "goblin-card accent-goblin" : isHero ? "bg-black/40 border-white/10 accent-hero" : "bg-black/40 border-white/10 accent-gold";
+										const badgeClass = item.isGoblin ? "slot-badge-goblin" : isHero ? "slot-badge-hero" : "slot-badge-regular";
+										const isApprenticeActiveHere = isBuilderHelperWorking && builderApprentice.assignedSlot === item.builderIndex;
+										return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+											className: `rounded-2xl p-4 border flex flex-col ${cardAccentClass}`,
+											children: [
+												/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+													className: "builder-header-sep flex flex-wrap items-center justify-between gap-2",
+													children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+														className: "flex flex-wrap items-center gap-2",
+														children: [
+															/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+																className: badgeClass,
+																children: item.slotBadge
+															}),
+															/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+																className: "upgrade-title",
+																children: item.upgradeTitle
+															}),
+															typeof item.upgradeLevel === "number" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+																className: item.isGoblin ? "lvl-chip-goblin" : "lvl-chip",
+																children: ["LVL ", item.upgradeLevel]
+															}),
+															isApprenticeActiveHere && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+																className: "helper-pulse-dot",
+																title: "Apprentice Active"
+															})
+														]
+													}), isFinishingNext && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+														className: "text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-md bg-amber-500/20 text-[#fbbf24] border border-amber-400/40",
+														children: "NEXT FREE"
+													})]
+												}),
+												/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+													className: "flex items-baseline gap-2 mb-3",
+													children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+														className: "text-[10px] uppercase tracking-wider text-gray-300 font-bold",
+														children: "Completes On:"
+													}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+														className: "text-base font-extrabold text-gold",
+														children: item.formattedDate
+													})]
+												}),
+												/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+													className: "pt-2.5 border-t border-white/10",
+													children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(LiveHudTicker, {
+														targetTimestamp: item.targetTimestamp,
+														helperBoostEndTime: isApprenticeActiveHere ? builderApprentice.activeSessionEndTime : null,
+														helperSpeedMultiplier: getHelperSpeedMultiplier(builderApprentice.level),
+														onFinish: () => handleBuilderUpgradeFinished(item.builderIndex)
+													})
+												})
+											]
+										}, `${item.builderIndex}-${item.targetTimestamp}-${idx}`);
 									})
-								]
-							}, animKey)
-						]
+								}),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+									className: "bg-black/40 rounded-2xl p-4 mt-4 border border-white/10 flex justify-between items-center",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+										className: "text-xs font-bold text-gray-200 uppercase tracking-wider",
+										children: "Total Time Saved"
+									}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+										id: "result-saved",
+										className: "text-lg font-extrabold text-elixir",
+										children: savedText
+									})]
+								})
+							]
+						}, animKey)] })]
 					}, "tab-builders"),
 					activeTab === "laboratory" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 						className: "tab-panel-fade space-y-4 relative z-10",
@@ -14444,6 +15178,10 @@ function App() {
 												typeof labTimer.upgradeLevel === "number" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
 													className: "lvl-chip",
 													children: ["LVL ", labTimer.upgradeLevel]
+												}),
+												isLabHelperWorking && labApprentice.assignedSlot === "main" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+													className: "helper-pulse-dot",
+													title: "Apprentice Active"
 												})
 											]
 										}), (labTimer.d || labTimer.h || labTimer.m || labTimer.upgradeTitle) && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
@@ -14564,9 +15302,12 @@ function App() {
 											})]
 										}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)(LiveHudTicker, {
 											targetTimestamp: targetLabTimestamp,
+											helperBoostEndTime: isLabHelperWorking && labApprentice.assignedSlot === "main" ? labApprentice.activeSessionEndTime : null,
+											helperSpeedMultiplier: getHelperSpeedMultiplier(labApprentice.level),
 											label: "Locked Research HUD Ticker",
 											finishBadgeText: "⚡ RESEARCH FINISHED! LAB FREE",
-											accentColorClass: "text-[#f0abfc]"
+											accentColorClass: "text-[#f0abfc]",
+											onFinish: () => handleLabUpgradeFinished("main")
 										})] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(HudTickerIdle, {
 											label: "Locked Research HUD Ticker",
 											accentUnitColorClass: "text-[#f0abfc]",
@@ -14594,6 +15335,10 @@ function App() {
 												typeof goblinLabTimer.upgradeLevel === "number" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
 													className: "lvl-chip",
 													children: ["LVL ", goblinLabTimer.upgradeLevel]
+												}),
+												isLabHelperWorking && labApprentice.assignedSlot === "goblin" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+													className: "helper-pulse-dot",
+													title: "Apprentice Active"
 												})
 											]
 										}), goblinLabTimer.d || goblinLabTimer.h || goblinLabTimer.m || goblinLabTimer.upgradeTitle ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
@@ -14721,9 +15466,12 @@ function App() {
 											})]
 										}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)(LiveHudTicker, {
 											targetTimestamp: targetGoblinLabTimestamp,
+											helperBoostEndTime: isLabHelperWorking && labApprentice.assignedSlot === "goblin" ? labApprentice.activeSessionEndTime : null,
+											helperSpeedMultiplier: getHelperSpeedMultiplier(labApprentice.level),
 											label: "Goblin Research HUD Ticker",
 											finishBadgeText: "⚡ GOBLIN RESEARCH FINISHED!",
-											accentColorClass: "text-[#22c55e]"
+											accentColorClass: "text-[#22c55e]",
+											onFinish: () => handleLabUpgradeFinished("goblin")
 										})] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(HudTickerIdle, {
 											label: "Goblin Research HUD Ticker",
 											accentUnitColorClass: "text-[#22c55e]",
@@ -14984,6 +15732,174 @@ function App() {
 						]
 					}, "tab-pethouse")
 				]
+			}),
+			assignModalType !== null && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+				className: "fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4",
+				onClick: () => setAssignModalType(null),
+				children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+					className: "w-full max-w-sm rounded-3xl p-6 bg-[#090d16] border border-emerald-400/40 shadow-[0_0_40px_rgba(0,0,0,0.9)] space-y-4 relative overflow-hidden",
+					onClick: (e) => e.stopPropagation(),
+					children: [
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "flex items-center justify-between",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "flex items-center gap-2",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+									className: "text-base",
+									children: assignModalType === "builder" ? "👷" : "🔬"
+								}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", {
+									className: "text-sm sm:text-base font-extrabold text-[#f8fafc]",
+									children: assignModalType === "builder" ? "Assign Builder's Apprentice" : "Assign Lab Apprentice"
+								}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
+									className: "text-[11px] font-bold text-emerald-400",
+									children: [
+										"Starts 1-Hour Active Session (",
+										getHelperSpeedMultiplier(assignModalType === "builder" ? builderApprentice.level : labApprentice.level),
+										"x Speed)"
+									]
+								})] })]
+							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+								type: "button",
+								onClick: () => {
+									triggerHaptic(15);
+									setAssignModalType(null);
+								},
+								className: "tactile text-gray-400 hover:text-white text-sm font-bold px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/10 cursor-pointer",
+								children: "✕"
+							})]
+						}),
+						assignModalType === "builder" ? activeBuilderTargetsForModal.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+							className: "space-y-2 max-h-72 overflow-y-auto pr-1",
+							children: activeBuilderTargetsForModal.map((target) => {
+								const d = Math.floor(target.remainingSeconds / 86400);
+								const h = Math.floor(target.remainingSeconds % 86400 / 3600);
+								const m = Math.floor(target.remainingSeconds % 3600 / 60);
+								const s = Math.floor(target.remainingSeconds % 60);
+								const timeParts = [];
+								if (d > 0) timeParts.push(`${d}d`);
+								if (h > 0 || d > 0) timeParts.push(`${h}h`);
+								if (m > 0 || h > 0 || d > 0) timeParts.push(`${m}m`);
+								if (d === 0 && h === 0) timeParts.push(`${s}s`);
+								return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+									type: "button",
+									onClick: () => handleStartBuilderApprenticeSession(target.slotIdx),
+									className: "tactile w-full text-left rounded-2xl p-3.5 bg-white/5 hover:bg-emerald-500/15 border border-white/10 hover:border-emerald-400/50 transition-all flex items-center justify-between gap-2 cursor-pointer",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+										className: "min-w-0",
+										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+											className: "flex items-center gap-1.5 flex-wrap",
+											children: [
+												/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+													className: target.isGoblin ? "slot-badge-goblin" : "slot-badge-regular",
+													children: target.slotBadge
+												}),
+												/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+													className: "text-xs sm:text-sm font-extrabold text-white truncate",
+													children: target.name
+												}),
+												typeof target.level === "number" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+													className: target.isGoblin ? "lvl-chip-goblin" : "lvl-chip",
+													children: ["LVL ", target.level]
+												})
+											]
+										}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+											className: "text-[11px] font-bold text-gray-300 mt-1",
+											children: [
+												"Remaining:",
+												" ",
+												/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+													className: "text-[#fbbf24] font-extrabold",
+													children: timeParts.join(" ")
+												})
+											]
+										})]
+									}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+										className: "shrink-0 px-2.5 py-1.5 rounded-xl text-[11px] font-extrabold bg-emerald-500/20 text-emerald-300 border border-emerald-400/40",
+										children: "Start 1h ⚡"
+									})]
+								}, target.slotIdx);
+							})
+						}) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "rounded-2xl p-4 bg-black/50 border border-white/10 text-center space-y-1.5",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+								className: "text-xs font-extrabold text-gray-200",
+								children: "No Active Builder Upgrades Found"
+							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+								className: "text-[11px] text-gray-400",
+								children: "Import your village JSON or enter an active upgrade timer in the Builders tab first."
+							})]
+						}) : activeLabTargetsForModal.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+							className: "space-y-2 max-h-72 overflow-y-auto pr-1",
+							children: activeLabTargetsForModal.map((target) => {
+								const d = Math.floor(target.remainingSeconds / 86400);
+								const h = Math.floor(target.remainingSeconds % 86400 / 3600);
+								const m = Math.floor(target.remainingSeconds % 3600 / 60);
+								const s = Math.floor(target.remainingSeconds % 60);
+								const timeParts = [];
+								if (d > 0) timeParts.push(`${d}d`);
+								if (h > 0 || d > 0) timeParts.push(`${h}h`);
+								if (m > 0 || h > 0 || d > 0) timeParts.push(`${m}m`);
+								if (d === 0 && h === 0) timeParts.push(`${s}s`);
+								return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+									type: "button",
+									onClick: () => handleStartLabApprenticeSession(target.slot),
+									className: "tactile w-full text-left rounded-2xl p-3.5 bg-white/5 hover:bg-emerald-500/15 border border-white/10 hover:border-emerald-400/50 transition-all flex items-center justify-between gap-2 cursor-pointer",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+										className: "min-w-0",
+										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+											className: "flex items-center gap-1.5 flex-wrap",
+											children: [
+												/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+													className: target.isGoblin ? "slot-badge-goblin" : "slot-badge-hero",
+													children: target.slotBadge
+												}),
+												/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+													className: "text-xs sm:text-sm font-extrabold text-white truncate",
+													children: target.name
+												}),
+												typeof target.level === "number" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+													className: "lvl-chip",
+													children: ["LVL ", target.level]
+												})
+											]
+										}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+											className: "text-[11px] font-bold text-gray-300 mt-1",
+											children: [
+												"Remaining:",
+												" ",
+												/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+													className: "text-[#f0abfc] font-extrabold",
+													children: timeParts.join(" ")
+												})
+											]
+										})]
+									}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+										className: "shrink-0 px-2.5 py-1.5 rounded-xl text-[11px] font-extrabold bg-emerald-500/20 text-emerald-300 border border-emerald-400/40",
+										children: "Start 1h ⚡"
+									})]
+								}, target.slot);
+							})
+						}) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "rounded-2xl p-4 bg-black/50 border border-white/10 text-center space-y-1.5",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+								className: "text-xs font-extrabold text-gray-200",
+								children: "No Active Laboratory Upgrades Found"
+							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+								className: "text-[11px] text-gray-400",
+								children: "Import your village JSON or enter an active research timer in the Laboratory tab first."
+							})]
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+							type: "button",
+							onClick: () => {
+								triggerHaptic(15);
+								setAssignModalType(null);
+							},
+							className: "tactile w-full py-2.5 rounded-xl font-bold text-xs sm:text-sm text-gray-200 bg-white/10 hover:bg-white/15 border border-white/10 cursor-pointer",
+							children: "Close"
+						})
+					]
+				})
 			}),
 			renamingAccountId && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 				className: "fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4",

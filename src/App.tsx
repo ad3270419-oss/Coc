@@ -288,6 +288,7 @@ const STORAGE_KEY = 'coc_builder_potion_saved_v2';
 const LEGACY_STORAGE_KEY = 'coc_builder_potion_saved_v1';
 const ACCOUNTS_STORAGE_KEY = 'clash_planner_accounts_v1';
 const SCHEDULED_ALERTS_STORAGE_KEY = 'clashPlanner_scheduledAlerts';
+const TIMERS_COLLAPSED_STORAGE_KEY = 'clash_planner_timers_collapsed';
 
 type ScheduledAlertsMap = Record<string, number[]>;
 
@@ -1885,6 +1886,38 @@ export default function App() {
   );
   const [animKey, setAnimKey] = useState<number>(0);
 
+  // Collapsible Upgrade Timers Accordion State (defaults to collapsed on launch & reopen, persisted in localStorage)
+  const [isTimersCollapsed, setIsTimersCollapsed] = useState<boolean>(() => {
+    try {
+      localStorage.setItem(TIMERS_COLLAPSED_STORAGE_KEY, 'true');
+    } catch {
+      // Ignore storage errors
+    }
+    return true;
+  });
+
+  const setTimersCollapsedState = useCallback((collapsed: boolean) => {
+    setIsTimersCollapsed(collapsed);
+    try {
+      localStorage.setItem(TIMERS_COLLAPSED_STORAGE_KEY, String(collapsed));
+    } catch {
+      // Ignore storage errors
+    }
+  }, []);
+
+  const toggleTimersCollapsed = useCallback(() => {
+    triggerHaptic(12);
+    setIsTimersCollapsed((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem(TIMERS_COLLAPSED_STORAGE_KEY, String(next));
+      } catch {
+        // Ignore storage errors
+      }
+      return next;
+    });
+  }, []);
+
   // Laboratory 24x Engine State (per account)
   const [researchPotions, setResearchPotions] = useState<number>(initial.researchPotions ?? 0);
   const [labTimer, setLabTimer] = useState<BuilderTime>(
@@ -1971,10 +2004,21 @@ export default function App() {
     return found?.name || 'Main Account';
   };
 
-  // Request Capacitor LocalNotification permissions on first app launch
+  // Request Capacitor LocalNotification permissions on first app launch & auto-collapse timers on app reopen
   useEffect(() => {
     void requestNotificationPermissions();
-  }, []);
+    setTimersCollapsedState(true);
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        setTimersCollapsedState(true);
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [setTimersCollapsedState]);
 
   // Automatically transition Helpers and Potion Boosts every second
   useEffect(() => {
@@ -3000,6 +3044,7 @@ export default function App() {
     setLockedResults([]);
     setSavedText('');
     setShowResult(false);
+    setTimersCollapsedState(false);
     void scheduleBuilderNotificationsForVillage(
       activeAccountId,
       getActiveVillageName(activeAccountId),
@@ -3157,6 +3202,7 @@ export default function App() {
       setBuilders(syncedBuilders);
       setBuilderBoostEndTime(nextBoostEnd);
       setPotionsInput('0');
+      setTimersCollapsedState(true);
 
       runCalculationWithData(
         currentMode,
@@ -3185,6 +3231,7 @@ export default function App() {
     if (curBoostRemSec > 0) {
       setBuilders(syncedBuilders);
       setBuilderBoostEndTime(null);
+      setTimersCollapsedState(true);
       runCalculationWithData(
         currentMode,
         numBuilders,
@@ -3206,6 +3253,7 @@ export default function App() {
       return;
     }
 
+    setTimersCollapsedState(true);
     runCalculationWithData(currentMode, numBuilders, builders, '0');
   };
 
@@ -3811,6 +3859,7 @@ export default function App() {
     setCurrentMode('multi');
     setNumBuilders(nextBuilderSliderCount);
     setBuilders(nextBuilders);
+    setTimersCollapsedState(true);
 
     // Switch to most relevant tab if builders are empty
     if (totalLoadedBuilders > 0 || builderBoostSeconds > 0) {
@@ -3845,6 +3894,9 @@ export default function App() {
   };
 
   const activeBuildersToRender = currentMode === 'single' ? 1 : numBuilders;
+  const activeBuilderTimersCount = builders
+    .slice(0, activeBuildersToRender)
+    .filter((b) => getTimerTotalSeconds(b) > 0).length;
 
   const pendingBuilderPotions = Math.max(0, parseInt(potionsInput, 10) || 0);
   const builderBoostRemSec = getRemainingBoostSeconds(builderBoostEndTime, nowTick);
@@ -4320,197 +4372,235 @@ export default function App() {
                   </div>
 
                   {/* Time Inputs Container */}
-                  <div id="time-inputs-container" className="space-y-4">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs uppercase tracking-wider text-[#fbbf24] font-extrabold">
-                        Upgrade Timers
-                      </span>
-                      {builders.slice(0, activeBuildersToRender).some((b) => b.d || b.h || b.m) && (
-                        <button
-                          type="button"
-                          onClick={resetAllTimes}
-                          className="tactile text-xs font-bold text-elixir hover:text-pink-300 transition flex items-center gap-1 cursor-pointer bg-pink-500/15 hover:bg-pink-500/25 px-2.5 py-1 rounded-lg border border-pink-500/30"
-                          title="Reset all days, hours, and minutes"
-                        >
-                          <svg
-                            className="w-3.5 h-3.5"
-                            fill="none"
-                            stroke="currentColor"
-                            viewBox="0 0 24 24"
+                  <div id="time-inputs-container">
+                    <div
+                      role="button"
+                      tabIndex={0}
+                      aria-expanded={!isTimersCollapsed}
+                      onClick={toggleTimersCollapsed}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          toggleTimersCollapsed();
+                        }
+                      }}
+                      className="tactile w-full flex items-center justify-between gap-2 py-1.5 px-2.5 -mx-2.5 rounded-xl hover:bg-white/5 transition-colors cursor-pointer select-none"
+                    >
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-xs uppercase tracking-wider text-[#fbbf24] font-extrabold">
+                          Upgrade Timers
+                        </span>
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg text-[11px] font-extrabold bg-amber-500/15 text-[#fbbf24] border border-amber-400/35 shadow-sm transition-all">
+                          <span className="inline-block transition-transform duration-200">
+                            {isTimersCollapsed ? '▸' : '▾'}
+                          </span>
+                          <span>
+                            {isTimersCollapsed
+                              ? `Show Timers (${activeBuilderTimersCount} Active)`
+                              : 'Hide Timers'}
+                          </span>
+                        </span>
+                      </div>
+                      {!isTimersCollapsed &&
+                        builders.slice(0, activeBuildersToRender).some((b) => b.d || b.h || b.m) && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              resetAllTimes();
+                            }}
+                            className="tactile text-xs font-bold text-elixir hover:text-pink-300 transition flex items-center gap-1 cursor-pointer bg-pink-500/15 hover:bg-pink-500/25 px-2.5 py-1 rounded-lg border border-pink-500/30"
+                            title="Reset all days, hours, and minutes"
                           >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              strokeWidth="2"
-                              d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                            />
-                          </svg>
-                          Reset All
-                        </button>
-                      )}
+                            <svg
+                              className="w-3.5 h-3.5"
+                              fill="none"
+                              stroke="currentColor"
+                              viewBox="0 0 24 24"
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth="2"
+                                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                              />
+                            </svg>
+                            Reset All
+                          </button>
+                        )}
                     </div>
 
-                    {Array.from({ length: activeBuildersToRender }, (_, idx) => {
-                      const i = idx + 1;
-                      const isGoblin = currentMode === 'multi' && i === 7;
-                      const builderVal = builders[idx] || { d: '', h: '', m: '' };
-                      const isHero = !isGoblin && !!builderVal.rawId?.startsWith('28');
+                    <div
+                      className={`grid transition-all duration-300 ease-in-out ${
+                        isTimersCollapsed
+                          ? 'grid-rows-[0fr] opacity-0 pointer-events-none'
+                          : 'grid-rows-[1fr] opacity-100 mt-4'
+                      }`}
+                    >
+                      <div className="overflow-hidden space-y-4">
+                        {Array.from({ length: activeBuildersToRender }, (_, idx) => {
+                          const i = idx + 1;
+                          const isGoblin = currentMode === 'multi' && i === 7;
+                          const builderVal = builders[idx] || { d: '', h: '', m: '' };
+                          const isHero = !isGoblin && !!builderVal.rawId?.startsWith('28');
 
-                      const slotBadgeText = isGoblin ? '[GOBLIN]' : `[B${i}]`;
-                      const defaultTitle =
-                        currentMode === 'single'
-                          ? 'Remaining Time'
-                          : isGoblin
-                          ? 'Goblin Builder'
-                          : `Builder ${i}`;
-                      const displayTitle = builderVal.upgradeTitle || defaultTitle;
+                          const slotBadgeText = isGoblin ? '[GOBLIN]' : `[B${i}]`;
+                          const defaultTitle =
+                            currentMode === 'single'
+                              ? 'Remaining Time'
+                              : isGoblin
+                              ? 'Goblin Builder'
+                              : `Builder ${i}`;
+                          const displayTitle = builderVal.upgradeTitle || defaultTitle;
 
-                      const accentClass = isGoblin
-                        ? 'goblin-card accent-goblin'
-                        : isHero
-                        ? 'builder-card accent-hero'
-                        : 'builder-card accent-gold';
+                          const accentClass = isGoblin
+                            ? 'goblin-card accent-goblin'
+                            : isHero
+                            ? 'builder-card accent-hero'
+                            : 'builder-card accent-gold';
 
-                      const badgeClass = isGoblin
-                        ? 'slot-badge-goblin'
-                        : isHero
-                        ? 'slot-badge-hero'
-                        : 'slot-badge-regular';
+                          const badgeClass = isGoblin
+                            ? 'slot-badge-goblin'
+                            : isHero
+                            ? 'slot-badge-hero'
+                            : 'slot-badge-regular';
 
-                      const hasThisBuilderTime = !!(
-                        builderVal.d ||
-                        builderVal.h ||
-                        builderVal.m ||
-                        builderVal.upgradeTitle
-                      );
+                          const hasThisBuilderTime = !!(
+                            builderVal.d ||
+                            builderVal.h ||
+                            builderVal.m ||
+                            builderVal.upgradeTitle
+                          );
 
-                      const isApprenticeActiveHere =
-                        isBuilderHelperWorking && builderApprentice.assignedSlot === idx;
+                          const isApprenticeActiveHere =
+                            isBuilderHelperWorking && builderApprentice.assignedSlot === idx;
 
-                      return (
-                        <div key={i} className={`rounded-2xl p-4 ${accentClass}`}>
-                          {/* Minimalist Poppy HUD Card Header with Separator */}
-                          <div className="builder-header-sep flex flex-wrap justify-between items-center gap-2">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <span className={badgeClass}>{slotBadgeText}</span>
-                              <span className="upgrade-title">{displayTitle}</span>
-                              {typeof builderVal.upgradeLevel === 'number' && (
-                                <span className={isGoblin ? 'lvl-chip-goblin' : 'lvl-chip'}>
-                                  LVL {builderVal.upgradeLevel}
-                                </span>
-                              )}
-                              {isApprenticeActiveHere && (
-                                <span
-                                  className="helper-pulse-dot"
-                                  title="Apprentice Active"
-                                ></span>
-                              )}
+                          return (
+                            <div key={i} className={`rounded-2xl p-4 ${accentClass}`}>
+                              {/* Minimalist Poppy HUD Card Header with Separator */}
+                              <div className="builder-header-sep flex flex-wrap justify-between items-center gap-2">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <span className={badgeClass}>{slotBadgeText}</span>
+                                  <span className="upgrade-title">{displayTitle}</span>
+                                  {typeof builderVal.upgradeLevel === 'number' && (
+                                    <span className={isGoblin ? 'lvl-chip-goblin' : 'lvl-chip'}>
+                                      LVL {builderVal.upgradeLevel}
+                                    </span>
+                                  )}
+                                  {isApprenticeActiveHere && (
+                                    <span
+                                      className="helper-pulse-dot"
+                                      title="Apprentice Active"
+                                    ></span>
+                                  )}
+                                </div>
+
+                                {hasThisBuilderTime && (
+                                  <button
+                                    type="button"
+                                    onClick={() => resetBuilderTime(idx)}
+                                    className="tactile text-xs font-bold text-gray-200 hover:text-elixir transition flex items-center gap-1 px-2 py-0.5 rounded-md bg-white/10 hover:bg-white/15 cursor-pointer"
+                                    title="Clear this builder's time"
+                                  >
+                                    ✕ Clear
+                                  </button>
+                                )}
+                              </div>
+
+                              {/* Days, Hours, Mins Inputs */}
+                              <div className="grid grid-cols-3 gap-3">
+                                <div className="flex flex-col">
+                                  <input
+                                    type="number"
+                                    id={`input-d-${i}`}
+                                    inputMode="numeric"
+                                    value={builderVal.d}
+                                    onChange={(e) => handleBuilderTimeChange(idx, 'd', e.target.value)}
+                                    placeholder="0"
+                                    min="0"
+                                    max="999"
+                                    className={`glass-input ${
+                                      isGoblin ? 'goblin-input' : ''
+                                    } w-full rounded-xl py-3 px-2 text-center text-xl font-bold placeholder-gray-500`}
+                                  />
+                                  <span className="text-xs font-semibold text-gray-200 text-center mt-1">
+                                    Days
+                                  </span>
+                                </div>
+                                <div className="flex flex-col">
+                                  <input
+                                    type="number"
+                                    id={`input-h-${i}`}
+                                    inputMode="numeric"
+                                    value={builderVal.h}
+                                    onChange={(e) => handleBuilderTimeChange(idx, 'h', e.target.value)}
+                                    placeholder="0"
+                                    min="0"
+                                    max="24"
+                                    className={`glass-input ${
+                                      isGoblin ? 'goblin-input' : ''
+                                    } w-full rounded-xl py-3 px-2 text-center text-xl font-bold placeholder-gray-500`}
+                                  />
+                                  <span className="text-xs font-semibold text-gray-200 text-center mt-1">
+                                    Hours
+                                  </span>
+                                </div>
+                                <div className="flex flex-col">
+                                  <input
+                                    type="number"
+                                    id={`input-m-${i}`}
+                                    inputMode="numeric"
+                                    value={builderVal.m}
+                                    onChange={(e) => handleBuilderTimeChange(idx, 'm', e.target.value)}
+                                    placeholder="0"
+                                    min="0"
+                                    max="60"
+                                    className={`glass-input ${
+                                      isGoblin ? 'goblin-input' : ''
+                                    } w-full rounded-xl py-3 px-2 text-center text-xl font-bold placeholder-gray-500`}
+                                  />
+                                  <span className="text-xs font-semibold text-gray-200 text-center mt-1">
+                                    Mins
+                                  </span>
+                                </div>
+                              </div>
+
+                              {/* Quick Time Preset Chips */}
+                              <div className="flex flex-wrap items-center gap-1.5 mt-3 pt-2.5 border-t border-white/10">
+                                {[
+                                  { label: '+6h', d: 0, h: 6 },
+                                  { label: '+12h', d: 0, h: 12 },
+                                  { label: '+1d', d: 1, h: 0 },
+                                  { label: '+3d', d: 3, h: 0 },
+                                  { label: '+5d', d: 5, h: 0 },
+                                  { label: '+7d', d: 7, h: 0 },
+                                ].map((preset) => (
+                                  <button
+                                    key={preset.label}
+                                    type="button"
+                                    onClick={() => applyPresetToBuilder(idx, preset.d, preset.h)}
+                                    className={`tactile text-xs font-bold px-2.5 py-1 rounded-lg border cursor-pointer ${
+                                      isGoblin
+                                        ? 'bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-200 border-emerald-500/30'
+                                        : 'bg-white/10 hover:bg-white/20 text-[#f8fafc] border-white/15'
+                                    }`}
+                                  >
+                                    {preset.label}
+                                  </button>
+                                ))}
+                                <button
+                                  type="button"
+                                  onClick={() => resetBuilderTime(idx)}
+                                  className="tactile text-xs font-bold px-2.5 py-1 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 ml-auto cursor-pointer"
+                                >
+                                  Clear
+                                </button>
+                              </div>
                             </div>
-
-                            {hasThisBuilderTime && (
-                              <button
-                                type="button"
-                                onClick={() => resetBuilderTime(idx)}
-                                className="tactile text-xs font-bold text-gray-200 hover:text-elixir transition flex items-center gap-1 px-2 py-0.5 rounded-md bg-white/10 hover:bg-white/15 cursor-pointer"
-                                title="Clear this builder's time"
-                              >
-                                ✕ Clear
-                              </button>
-                            )}
-                          </div>
-
-                          {/* Days, Hours, Mins Inputs */}
-                          <div className="grid grid-cols-3 gap-3">
-                            <div className="flex flex-col">
-                              <input
-                                type="number"
-                                id={`input-d-${i}`}
-                                inputMode="numeric"
-                                value={builderVal.d}
-                                onChange={(e) => handleBuilderTimeChange(idx, 'd', e.target.value)}
-                                placeholder="0"
-                                min="0"
-                                max="999"
-                                className={`glass-input ${
-                                  isGoblin ? 'goblin-input' : ''
-                                } w-full rounded-xl py-3 px-2 text-center text-xl font-bold placeholder-gray-500`}
-                              />
-                              <span className="text-xs font-semibold text-gray-200 text-center mt-1">
-                                Days
-                              </span>
-                            </div>
-                            <div className="flex flex-col">
-                              <input
-                                type="number"
-                                id={`input-h-${i}`}
-                                inputMode="numeric"
-                                value={builderVal.h}
-                                onChange={(e) => handleBuilderTimeChange(idx, 'h', e.target.value)}
-                                placeholder="0"
-                                min="0"
-                                max="24"
-                                className={`glass-input ${
-                                  isGoblin ? 'goblin-input' : ''
-                                } w-full rounded-xl py-3 px-2 text-center text-xl font-bold placeholder-gray-500`}
-                              />
-                              <span className="text-xs font-semibold text-gray-200 text-center mt-1">
-                                Hours
-                              </span>
-                            </div>
-                            <div className="flex flex-col">
-                              <input
-                                type="number"
-                                id={`input-m-${i}`}
-                                inputMode="numeric"
-                                value={builderVal.m}
-                                onChange={(e) => handleBuilderTimeChange(idx, 'm', e.target.value)}
-                                placeholder="0"
-                                min="0"
-                                max="60"
-                                className={`glass-input ${
-                                  isGoblin ? 'goblin-input' : ''
-                                } w-full rounded-xl py-3 px-2 text-center text-xl font-bold placeholder-gray-500`}
-                              />
-                              <span className="text-xs font-semibold text-gray-200 text-center mt-1">
-                                Mins
-                              </span>
-                            </div>
-                          </div>
-
-                          {/* Quick Time Preset Chips */}
-                          <div className="flex flex-wrap items-center gap-1.5 mt-3 pt-2.5 border-t border-white/10">
-                            {[
-                              { label: '+6h', d: 0, h: 6 },
-                              { label: '+12h', d: 0, h: 12 },
-                              { label: '+1d', d: 1, h: 0 },
-                              { label: '+3d', d: 3, h: 0 },
-                              { label: '+5d', d: 5, h: 0 },
-                              { label: '+7d', d: 7, h: 0 },
-                            ].map((preset) => (
-                              <button
-                                key={preset.label}
-                                type="button"
-                                onClick={() => applyPresetToBuilder(idx, preset.d, preset.h)}
-                                className={`tactile text-xs font-bold px-2.5 py-1 rounded-lg border cursor-pointer ${
-                                  isGoblin
-                                    ? 'bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-200 border-emerald-500/30'
-                                    : 'bg-white/10 hover:bg-white/20 text-[#f8fafc] border-white/15'
-                                }`}
-                              >
-                                {preset.label}
-                              </button>
-                            ))}
-                            <button
-                              type="button"
-                              onClick={() => resetBuilderTime(idx)}
-                              className="tactile text-xs font-bold px-2.5 py-1 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 ml-auto cursor-pointer"
-                            >
-                              Clear
-                            </button>
-                          </div>
-                        </div>
-                      );
-                    })}
+                          );
+                        })}
+                      </div>
+                    </div>
                   </div>
 
                   {/* Potions Input with Tactile +/- Counter + 10x Speed Boost HUD Pill */}

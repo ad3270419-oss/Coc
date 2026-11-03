@@ -51,7 +51,15 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x android/gradlew
 
-      - name: Build Debug APK with Gradle
+      - name: Verify Persistent APK Signing Keystore
+        run: |
+          if [ ! -f "android/app/clash-planner.keystore" ]; then
+            echo "Error: android/app/clash-planner.keystore is missing!"
+            exit 1
+          fi
+          chmod 644 android/app/clash-planner.keystore
+
+      - name: Build Signed APK with Gradle
         run: |
           cd android
           ./gradlew assembleDebug --no-daemon --stacktrace

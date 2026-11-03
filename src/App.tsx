@@ -1984,11 +1984,14 @@ export default function App() {
   // Assign Apprentice to Upgrade Modal State ('builder' | 'lab' | null)
   const [assignModalType, setAssignModalType] = useState<'builder' | 'lab' | null>(null);
 
-  // CoC Village JSON Import Modal & Add Account state
+  // CoC Village JSON Import Modal, Add Account & Full Backup/Restore state
   const [isImportModalOpen, setIsImportModalOpen] = useState<boolean>(false);
   const [isAddingNewAccount, setIsAddingNewAccount] = useState<boolean>(false);
   const [newVillageNameInput, setNewVillageNameInput] = useState<string>('');
   const [jsonInputText, setJsonInputText] = useState<string>('');
+  const [isBackupModalOpen, setIsBackupModalOpen] = useState<boolean>(false);
+  const [backupRestoreInput, setBackupRestoreInput] = useState<string>('');
+  const backupFileInputRef = useRef<HTMLInputElement | null>(null);
   const [toast, setToast] = useState<ToastMessage | null>(null);
 
   const showToast = (type: 'success' | 'error', text: string) => {
@@ -3500,6 +3503,183 @@ export default function App() {
   }, []);
 
   // ============================================================================
+  // FULL MULTI-ACCOUNT BACKUP & RESTORE (1-TAP EXPORT / IMPORT ALL VILLAGES)
+  // ============================================================================
+  const buildFullBackupPayload = (): string => {
+    const currentActiveState: SavedState = {
+      mode: currentMode,
+      numBuilders,
+      builders,
+      potions: potionsInput,
+      lockedResults,
+      lockedSavedText: savedText,
+      researchPotions,
+      labTimer,
+      goblinLabTimer,
+      targetLabTimestamp,
+      labFormattedDate,
+      labSavedText,
+      targetGoblinLabTimestamp,
+      goblinLabFormattedDate,
+      petPotions,
+      petTimer,
+      targetPetTimestamp,
+      petFormattedDate,
+      petSavedText,
+      builderBoostEndTime,
+      labBoostEndTime,
+      petBoostEndTime,
+      builderApprentice,
+      labApprentice,
+    };
+
+    const syncedAccounts = accounts.map((acc) =>
+      acc.id === activeAccountId ? { ...acc, data: currentActiveState } : acc
+    );
+
+    return JSON.stringify(
+      {
+        clashPlannerBackupVersion: 1,
+        exportedAt: Date.now(),
+        activeAccountId,
+        accounts: syncedAccounts,
+      },
+      null,
+      2
+    );
+  };
+
+  const handleCopyFullBackup = async () => {
+    triggerHaptic(15);
+    const payload = buildFullBackupPayload();
+    try {
+      await navigator.clipboard.writeText(payload);
+      showToast('success', `Copied backup for ${accounts.length} village${accounts.length > 1 ? 's' : ''}!`);
+    } catch {
+      setBackupRestoreInput(payload);
+      showToast('success', 'Backup generated below — long-press to copy');
+    }
+  };
+
+  const handleDownloadFullBackup = () => {
+    triggerHaptic(15);
+    const payload = buildFullBackupPayload();
+    try {
+      const blob = new Blob([payload], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const dateStr = new Date().toISOString().slice(0, 10);
+      a.href = url;
+      a.download = `clash-planner-backup-${dateStr}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      showToast('success', 'Downloaded Clash Planner backup file!');
+    } catch {
+      showToast('error', 'Could not download file — use Copy Backup instead');
+    }
+  };
+
+  const restoreAccountsFromBackupObject = (rawObj: Record<string, unknown>): boolean => {
+    if (!Array.isArray(rawObj.accounts) || rawObj.accounts.length === 0) {
+      return false;
+    }
+
+    const restoredAccounts: VillageProfile[] = [];
+    for (let i = 0; i < rawObj.accounts.length; i++) {
+      const item = rawObj.accounts[i] as Partial<VillageProfile> | undefined;
+      if (!item || typeof item !== 'object' || !item.data) continue;
+      const mergedState: SavedState = {
+        ...createDefaultSavedState(),
+        ...item.data,
+      };
+      restoredAccounts.push({
+        id: typeof item.id === 'string' && item.id.trim() ? item.id.trim() : `village_${Date.now()}_${i}`,
+        name: typeof item.name === 'string' && item.name.trim() ? item.name.trim() : `Village ${i + 1}`,
+        tag: typeof item.tag === 'string' ? item.tag : undefined,
+        data: mergedState,
+      });
+    }
+
+    if (restoredAccounts.length === 0) return false;
+
+    const requestedActiveId =
+      typeof rawObj.activeAccountId === 'string' ? rawObj.activeAccountId : restoredAccounts[0].id;
+    const activeProfile =
+      restoredAccounts.find((a) => a.id === requestedActiveId) || restoredAccounts[0];
+
+    setAccounts(restoredAccounts);
+    setActiveAccountId(activeProfile.id);
+    applySavedStateToActiveView(activeProfile.data);
+    setTimersCollapsedState(true);
+
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(activeProfile.data));
+      const multiPayload: MultiAccountStorage = {
+        activeAccountId: activeProfile.id,
+        accounts: restoredAccounts,
+      };
+      localStorage.setItem(ACCOUNTS_STORAGE_KEY, JSON.stringify(multiPayload));
+    } catch {
+      // Ignore storage error
+    }
+
+    // Reschedule notifications for all restored villages
+    restoredAccounts.forEach((profile) => {
+      const d = profile.data;
+      void scheduleBuilderNotificationsForVillage(profile.id, profile.name, d.lockedResults || []);
+      void scheduleLabNotificationsForVillage(
+        profile.id,
+        profile.name,
+        d.labTimer || createEmptyTimer(),
+        d.targetLabTimestamp ?? null,
+        d.goblinLabTimer || createEmptyTimer(),
+        d.targetGoblinLabTimestamp ?? null
+      );
+      void schedulePetNotificationForVillage(
+        profile.id,
+        profile.name,
+        d.petTimer || createEmptyTimer(),
+        d.targetPetTimestamp ?? null
+      );
+      void scheduleBoostExpiryNotificationsForVillage(
+        profile.id,
+        profile.name,
+        d.builderBoostEndTime,
+        d.labBoostEndTime,
+        d.petBoostEndTime
+      );
+    });
+
+    showToast(
+      'success',
+      `Restored ${restoredAccounts.length} village profile${restoredAccounts.length > 1 ? 's' : ''}!`
+    );
+    return true;
+  };
+
+  const handleRestoreFromBackupText = (rawText: string = backupRestoreInput) => {
+    triggerHaptic(15);
+    const trimmed = rawText.trim();
+    if (!trimmed) {
+      showToast('error', 'Paste your Clash Planner backup JSON first');
+      return;
+    }
+    try {
+      const parsed = JSON.parse(trimmed) as Record<string, unknown>;
+      if (parsed && typeof parsed === 'object' && restoreAccountsFromBackupObject(parsed)) {
+        setIsBackupModalOpen(false);
+        setBackupRestoreInput('');
+        return;
+      }
+      showToast('error', 'Invalid Clash Planner backup JSON');
+    } catch {
+      showToast('error', 'Invalid JSON format');
+    }
+  };
+
+  // ============================================================================
   // 2. JSON PARSING & STATE EXTRACTION (BUILDERS + LAB + PET HOUSE + BOOSTS + HELPERS)
   // ============================================================================
   const handleImportVillageJson = () => {
@@ -3512,15 +3692,24 @@ export default function App() {
       return;
     }
 
-    let parsedData: RawCoCVillage;
+    let parsedData: RawCoCVillage & Record<string, unknown>;
     try {
-      parsedData = JSON.parse(trimmed) as RawCoCVillage;
+      parsedData = JSON.parse(trimmed) as RawCoCVillage & Record<string, unknown>;
       if (!parsedData || typeof parsedData !== 'object' || Array.isArray(parsedData)) {
         showToast('error', 'Invalid JSON format');
         return;
       }
     } catch {
       showToast('error', 'Invalid JSON format');
+      return;
+    }
+
+    // Auto-detect if the user pasted a full Clash Planner Multi-Account Backup JSON
+    if (Array.isArray(parsedData.accounts) && restoreAccountsFromBackupObject(parsedData)) {
+      setIsImportModalOpen(false);
+      setIsAddingNewAccount(false);
+      setNewVillageNameInput('');
+      setJsonInputText('');
       return;
     }
 
@@ -4104,7 +4293,7 @@ export default function App() {
           </h1>
           <p className="tagline-companion mt-1 uppercase">UPGRADE COMPANION</p>
 
-          <div className="mt-3.5 flex justify-center">
+          <div className="mt-3.5 flex items-center justify-center gap-2 flex-wrap">
             <button
               type="button"
               onClick={() => {
@@ -4115,6 +4304,18 @@ export default function App() {
               className="tactile inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-extrabold text-[#f8fafc] bg-gradient-to-r from-amber-500/20 via-pink-500/20 to-purple-500/20 hover:from-amber-500/30 hover:to-purple-500/30 border border-amber-400/50 shadow-[0_0_15px_rgba(251,191,36,0.25)] cursor-pointer"
             >
               <span>📥 Import CoC JSON</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                triggerHaptic(15);
+                setBackupRestoreInput('');
+                setIsBackupModalOpen(true);
+              }}
+              title="Backup or Restore all village accounts and timers"
+              className="tactile inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-extrabold text-emerald-300 bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-400/40 shadow-[0_0_12px_rgba(16,185,129,0.18)] cursor-pointer"
+            >
+              <span>💾 Backup / Restore</span>
             </button>
           </div>
         </div>
@@ -5904,6 +6105,138 @@ export default function App() {
                 className="btn-calculate tactile flex-1 py-3 px-4 rounded-xl font-extrabold text-xs sm:text-sm text-white shadow-lg cursor-pointer"
               >
                 {isAddingNewAccount ? 'Import & Add Village' : 'Import Timers'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Dark Obsidian Full Backup & Restore Modal */}
+      {isBackupModalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4"
+          onClick={() => setIsBackupModalOpen(false)}
+        >
+          <div
+            className="w-full max-w-md rounded-3xl p-6 bg-[#090d16] border border-emerald-400/35 shadow-[0_0_40px_rgba(0,0,0,0.9)] space-y-4 relative overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="text-lg">💾</span>
+                <h2 className="text-base sm:text-lg font-extrabold text-[#f8fafc]">
+                  Backup & Restore All Villages
+                </h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  triggerHaptic(15);
+                  setIsBackupModalOpen(false);
+                }}
+                className="tactile text-gray-400 hover:text-white text-sm font-bold px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/10 cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Export Section */}
+            <div className="rounded-2xl p-3.5 bg-white/5 border border-white/10 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-extrabold uppercase tracking-wider text-[#fbbf24]">
+                  1. Export All Data ({accounts.length} Village{accounts.length > 1 ? 's' : ''})
+                </span>
+              </div>
+              <p className="text-[11px] text-gray-300 leading-relaxed">
+                Save all your village profiles, names, active upgrade timers, boosts, and helpers in one tap.
+              </p>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={handleCopyFullBackup}
+                  className="tactile flex-1 py-2.5 px-3 rounded-xl text-xs font-extrabold text-[#fbbf24] bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/50 cursor-pointer flex items-center justify-center gap-1.5"
+                >
+                  <span>📋 Copy All Villages</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDownloadFullBackup}
+                  className="tactile flex-1 py-2.5 px-3 rounded-xl text-xs font-extrabold text-emerald-300 bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-400/50 cursor-pointer flex items-center justify-center gap-1.5"
+                >
+                  <span>⬇️ Download File</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Restore Section */}
+            <div className="rounded-2xl p-3.5 bg-white/5 border border-white/10 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-extrabold uppercase tracking-wider text-emerald-300">
+                  2. Restore From Backup
+                </span>
+                <input
+                  ref={backupFileInputRef}
+                  type="file"
+                  accept=".json,application/json"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    const reader = new FileReader();
+                    reader.onload = () => {
+                      const content = typeof reader.result === 'string' ? reader.result : '';
+                      if (content) {
+                        setBackupRestoreInput(content);
+                        handleRestoreFromBackupText(content);
+                      }
+                    };
+                    reader.readAsText(file);
+                    e.target.value = '';
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    triggerHaptic(12);
+                    backupFileInputRef.current?.click();
+                  }}
+                  className="tactile text-[11px] font-extrabold px-2.5 py-1 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-400/40 cursor-pointer"
+                >
+                  📂 Upload .json
+                </button>
+              </div>
+
+              <div className="relative">
+                <textarea
+                  value={backupRestoreInput}
+                  onChange={(e) => setBackupRestoreInput(e.target.value)}
+                  placeholder="Paste your Clash Planner backup JSON here to restore all villages..."
+                  rows={4}
+                  className="glass-input w-full rounded-xl p-3 text-xs font-mono text-gray-100 placeholder-gray-500 resize-none focus:outline-none"
+                />
+                <button
+                  type="button"
+                  onClick={async () => {
+                    triggerHaptic(15);
+                    try {
+                      const clip = await navigator.clipboard.readText();
+                      if (clip) setBackupRestoreInput(clip);
+                    } catch {
+                      // Clipboard permission denied
+                    }
+                  }}
+                  className="tactile absolute bottom-2.5 right-2.5 text-[11px] font-bold px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-[#fbbf24] border border-white/15 cursor-pointer"
+                >
+                  📋 Paste
+                </button>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => handleRestoreFromBackupText()}
+                className="btn-calculate tactile w-full py-2.5 px-4 rounded-xl font-extrabold text-xs sm:text-sm text-white shadow-lg cursor-pointer"
+              >
+                Restore All Villages
               </button>
             </div>
           </div>

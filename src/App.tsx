@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { LocalNotifications } from '@capacitor/local-notifications';
 
 export const COC_NAMES: Record<string | number, string> = {
@@ -203,6 +203,10 @@ interface SavedState {
   targetPetTimestamp?: number | null;
   petFormattedDate?: string;
   petSavedText?: string;
+  // Active In-Game Potion Boost End Timestamps (ms)
+  builderBoostEndTime?: number | null;
+  labBoostEndTime?: number | null;
+  petBoostEndTime?: number | null;
 }
 
 interface VillageProfile {
@@ -231,6 +235,13 @@ interface RawCoCItem {
   extra?: boolean;
 }
 
+interface RawCoCBoosts {
+  builder_boost?: number;
+  lab_boost?: number;
+  pet_boost?: number;
+  [key: string]: unknown;
+}
+
 interface RawCoCVillage {
   tag?: string;
   buildings?: RawCoCItem[];
@@ -240,6 +251,7 @@ interface RawCoCVillage {
   spells?: RawCoCItem[];
   siege_machines?: RawCoCItem[];
   pets?: RawCoCItem[];
+  boosts?: RawCoCBoosts;
 }
 
 const STORAGE_KEY = 'coc_builder_potion_saved_v2';
@@ -457,6 +469,50 @@ async function schedulePetNotificationForVillage(
   }
 }
 
+async function scheduleBoostExpiryNotificationsForVillage(
+  villageId: string,
+  villageName: string,
+  builderBoostEndTime: number | null | undefined,
+  labBoostEndTime: number | null | undefined,
+  petBoostEndTime: number | null | undefined
+): Promise<void> {
+  if (builderBoostEndTime && builderBoostEndTime > Date.now() + 1000) {
+    await scheduleExactSlotNotification({
+      villageId,
+      slotKey: 'boost_builder',
+      title: `⚡ Builder Boost Expired • ${villageName}`,
+      body: `${villageName}: Builder Potion boost has ended! Upgrades are back to normal speed.`,
+      targetTimestamp: builderBoostEndTime,
+    });
+  } else {
+    await cancelSlotNotification(villageId, 'boost_builder');
+  }
+
+  if (labBoostEndTime && labBoostEndTime > Date.now() + 1000) {
+    await scheduleExactSlotNotification({
+      villageId,
+      slotKey: 'boost_lab',
+      title: `⚡ Lab Boost Expired • ${villageName}`,
+      body: `${villageName}: Research Potion boost has ended!`,
+      targetTimestamp: labBoostEndTime,
+    });
+  } else {
+    await cancelSlotNotification(villageId, 'boost_lab');
+  }
+
+  if (petBoostEndTime && petBoostEndTime > Date.now() + 1000) {
+    await scheduleExactSlotNotification({
+      villageId,
+      slotKey: 'boost_pet',
+      title: `⚡ Pet Boost Expired • ${villageName}`,
+      body: `${villageName}: Pet Potion boost has ended!`,
+      targetTimestamp: petBoostEndTime,
+    });
+  } else {
+    await cancelSlotNotification(villageId, 'boost_pet');
+  }
+}
+
 async function cancelAllNotificationsForVillage(villageId: string): Promise<void> {
   const map = loadScheduledAlertsMap();
   const storedIds = Array.isArray(map[villageId]) ? map[villageId] : [];
@@ -471,6 +527,9 @@ async function cancelAllNotificationsForVillage(villageId: string): Promise<void
     getSlotNotificationId(villageId, 'lab_main'),
     getSlotNotificationId(villageId, 'lab_goblin'),
     getSlotNotificationId(villageId, 'pet_main'),
+    getSlotNotificationId(villageId, 'boost_builder'),
+    getSlotNotificationId(villageId, 'boost_lab'),
+    getSlotNotificationId(villageId, 'boost_pet'),
   ];
 
   const uniqueIds = Array.from(new Set([...storedIds, ...deterministicSlotIds]));
@@ -525,6 +584,9 @@ function createDefaultSavedState(): SavedState {
     targetPetTimestamp: null,
     petFormattedDate: '',
     petSavedText: '',
+    builderBoostEndTime: null,
+    labBoostEndTime: null,
+    petBoostEndTime: null,
   };
 }
 
@@ -669,6 +731,18 @@ function normalizeSavedState(
     petFormattedDate:
       typeof parsed.petFormattedDate === 'string' ? parsed.petFormattedDate : '',
     petSavedText: typeof parsed.petSavedText === 'string' ? parsed.petSavedText : '',
+    builderBoostEndTime:
+      typeof parsed.builderBoostEndTime === 'number' && parsed.builderBoostEndTime > 0
+        ? parsed.builderBoostEndTime
+        : null,
+    labBoostEndTime:
+      typeof parsed.labBoostEndTime === 'number' && parsed.labBoostEndTime > 0
+        ? parsed.labBoostEndTime
+        : null,
+    petBoostEndTime:
+      typeof parsed.petBoostEndTime === 'number' && parsed.petBoostEndTime > 0
+        ? parsed.petBoostEndTime
+        : null,
   };
 }
 
@@ -742,32 +816,49 @@ function loadMultiAccountStorage(): MultiAccountStorage {
 }
 
 /**
- * 10x Builder Potion Math (1 potion = 10h progress in 1h real time; saves 9h)
+ * 10x Builder Potion Math (Boost-Aware):
+ * - First `activeBoostSeconds` + `(potions * 3600)` real seconds run at 10x speed
+ * - Each real-time second of 10x boost completes 10 seconds of upgrade time (saving 9s)
  */
-function calcRealTime(totalBuilderHours: number, potions: number): number {
-  if (totalBuilderHours === 0) return 0;
-  const maxPotionCoverageHours = potions * 10;
-  if (totalBuilderHours <= maxPotionCoverageHours) {
-    return totalBuilderHours / 10;
+export function calc10xRealTimeSeconds(
+  remainingSeconds: number,
+  potions: number,
+  activeBoostSeconds = 0
+): number {
+  if (remainingSeconds <= 0) return 0;
+  const totalBoostRealSeconds = Math.max(0, activeBoostSeconds) + Math.max(0, potions) * 3600;
+  const maxBoostCoverageSeconds = totalBoostRealSeconds * 10;
+  if (remainingSeconds <= maxBoostCoverageSeconds) {
+    return remainingSeconds / 10;
   } else {
-    return totalBuilderHours - potions * 9;
+    return totalBoostRealSeconds + (remainingSeconds - maxBoostCoverageSeconds);
   }
 }
 
 /**
- * 24x Research & Pet Potion Calculation Engine:
- * - 1 Potion = 24x Speed Boost for 1 Hour (3,600 seconds)
+ * 24x Research & Pet Potion Calculation Engine (Boost-Aware):
+ * - First `activeBoostSeconds` + `(potionCount * 3600)` real seconds run at 24x speed
  * - 1 Hour of potion boost consumes 24 hours (86,400 seconds) of upgrade progress
  * - Effective time saved per potion = 23 hours (82,800 seconds)
  */
-export function calc24xRealTimeSeconds(remainingSeconds: number, potionCount: number): number {
+export function calc24xRealTimeSeconds(
+  remainingSeconds: number,
+  potionCount: number,
+  activeBoostSeconds = 0
+): number {
   if (remainingSeconds <= 0) return 0;
-  const totalBoostCapacity = potionCount * 86400;
+  const totalBoostRealSeconds = Math.max(0, activeBoostSeconds) + Math.max(0, potionCount) * 3600;
+  const totalBoostCapacity = totalBoostRealSeconds * 24;
   if (remainingSeconds <= totalBoostCapacity) {
     return remainingSeconds / 24;
   } else {
-    return potionCount * 3600 + (remainingSeconds - totalBoostCapacity);
+    return totalBoostRealSeconds + (remainingSeconds - totalBoostCapacity);
   }
+}
+
+function getRemainingBoostSeconds(boostEndTime: number | null | undefined, now = Date.now()): number {
+  if (!boostEndTime || boostEndTime <= now) return 0;
+  return Math.max(0, Math.ceil((boostEndTime - now) / 1000));
 }
 
 function formatCompletionDate(timestamp: number): string {
@@ -782,12 +873,15 @@ function formatCompletionDate(timestamp: number): string {
 
 function formatSavedSeconds(savedSeconds: number): string {
   if (savedSeconds <= 0) return '0h';
-  const totalHours = Math.round(savedSeconds / 3600);
-  const days = Math.floor(totalHours / 24);
-  const hours = totalHours % 24;
+  const totalMinutes = Math.round(savedSeconds / 60);
+  const days = Math.floor(totalMinutes / 1440);
+  const hours = Math.floor((totalMinutes % 1440) / 60);
+  const mins = totalMinutes % 60;
   let out = '';
   if (days > 0) out += `${days}d `;
-  if (hours > 0 || days === 0) out += `${hours}h`;
+  if (hours > 0) out += `${hours}h `;
+  if (days === 0 && mins > 0) out += `${mins}m`;
+  if (!out.trim()) out = '0h';
   return out.trim();
 }
 
@@ -1051,6 +1145,79 @@ const HudTickerIdle: React.FC<{
   );
 };
 
+/**
+ * Active Boost Live Countdown Badge inside Potion HUD:
+ * Renders "⚡ Active Boost: [MMm SSs remaining]" and ticks down every second in real-time.
+ * Smoothly hides and resets when the timer reaches 0.
+ */
+const ActiveBoostHudBadge: React.FC<{
+  boostEndTime: number | null | undefined;
+  variant: 'builders' | 'laboratory' | 'pethouse';
+  onExpire: () => void;
+}> = React.memo(({ boostEndTime, variant, onExpire }) => {
+  const [remSeconds, setRemSeconds] = useState<number>(() =>
+    getRemainingBoostSeconds(boostEndTime)
+  );
+
+  useEffect(() => {
+    const initialRem = getRemainingBoostSeconds(boostEndTime);
+    setRemSeconds(initialRem);
+    if (initialRem <= 0) {
+      if (boostEndTime) {
+        onExpire();
+      }
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      const nextRem = getRemainingBoostSeconds(boostEndTime);
+      if (nextRem <= 0) {
+        window.clearInterval(intervalId);
+        setRemSeconds(0);
+        triggerHaptic([20, 40, 20]);
+        onExpire();
+      } else {
+        setRemSeconds(nextRem);
+      }
+    }, 1000);
+
+    return () => window.clearInterval(intervalId);
+  }, [boostEndTime, onExpire]);
+
+  if (!boostEndTime || remSeconds <= 0) {
+    return null;
+  }
+
+  const mins = Math.floor(remSeconds / 60);
+  const secs = remSeconds % 60;
+  const formattedTime = `${String(mins).padStart(2, '0')}m ${String(secs).padStart(2, '0')}s remaining`;
+
+  const themeClasses =
+    variant === 'builders'
+      ? 'bg-amber-500/20 text-[#fbbf24] border-amber-400/50 shadow-[0_0_16px_rgba(251,191,36,0.3)]'
+      : variant === 'laboratory'
+      ? 'bg-fuchsia-500/20 text-[#f0abfc] border-fuchsia-400/50 shadow-[0_0_16px_rgba(217,70,239,0.3)]'
+      : 'bg-emerald-500/20 text-emerald-300 border-emerald-400/50 shadow-[0_0_16px_rgba(16,185,129,0.3)]';
+
+  const dotColor =
+    variant === 'builders'
+      ? 'bg-[#fbbf24] shadow-[0_0_8px_#fbbf24]'
+      : variant === 'laboratory'
+      ? 'bg-[#f0abfc] shadow-[0_0_8px_#f0abfc]'
+      : 'bg-emerald-400 shadow-[0_0_8px_#34d399]';
+
+  return (
+    <div
+      className={`mt-2.5 w-full rounded-xl px-3 py-2 border flex items-center justify-center gap-2 transition-all duration-300 ${themeClasses}`}
+    >
+      <span className={`w-2 h-2 rounded-full animate-pulse shrink-0 ${dotColor}`} />
+      <span className="text-xs font-extrabold tracking-wide">
+        ⚡ Active Boost: {formattedTime}
+      </span>
+    </div>
+  );
+});
+
 export default function App() {
   const initialMulti = loadMultiAccountStorage();
   const initialActiveProfile =
@@ -1120,6 +1287,23 @@ export default function App() {
   );
   const [petSavedText, setPetSavedText] = useState<string>(initial.petSavedText || '');
 
+  // Active In-Game Potion Boost End Timestamps (per account)
+  const [builderBoostEndTime, setBuilderBoostEndTime] = useState<number | null>(
+    initial.builderBoostEndTime && initial.builderBoostEndTime > Date.now()
+      ? initial.builderBoostEndTime
+      : null
+  );
+  const [labBoostEndTime, setLabBoostEndTime] = useState<number | null>(
+    initial.labBoostEndTime && initial.labBoostEndTime > Date.now()
+      ? initial.labBoostEndTime
+      : null
+  );
+  const [petBoostEndTime, setPetBoostEndTime] = useState<number | null>(
+    initial.petBoostEndTime && initial.petBoostEndTime > Date.now()
+      ? initial.petBoostEndTime
+      : null
+  );
+
   // CoC Village JSON Import Modal & Add Account state
   const [isImportModalOpen, setIsImportModalOpen] = useState<boolean>(false);
   const [isAddingNewAccount, setIsAddingNewAccount] = useState<boolean>(false);
@@ -1146,6 +1330,7 @@ export default function App() {
   }, []);
 
   const applySavedStateToActiveView = (d: SavedState) => {
+    const now = Date.now();
     setCurrentMode(d.mode);
     setNumBuilders(d.numBuilders);
     setBuilders(d.builders);
@@ -1166,6 +1351,15 @@ export default function App() {
     setTargetPetTimestamp(d.targetPetTimestamp ?? null);
     setPetFormattedDate(d.petFormattedDate || '');
     setPetSavedText(d.petSavedText || '');
+    setBuilderBoostEndTime(
+      d.builderBoostEndTime && d.builderBoostEndTime > now ? d.builderBoostEndTime : null
+    );
+    setLabBoostEndTime(
+      d.labBoostEndTime && d.labBoostEndTime > now ? d.labBoostEndTime : null
+    );
+    setPetBoostEndTime(
+      d.petBoostEndTime && d.petBoostEndTime > now ? d.petBoostEndTime : null
+    );
     setAnimKey((prev) => prev + 1);
   };
 
@@ -1192,6 +1386,9 @@ export default function App() {
         targetPetTimestamp,
         petFormattedDate,
         petSavedText,
+        builderBoostEndTime,
+        labBoostEndTime,
+        petBoostEndTime,
       };
 
       // Keep legacy STORAGE_KEY synced with the active village profile
@@ -1232,6 +1429,9 @@ export default function App() {
     targetPetTimestamp,
     petFormattedDate,
     petSavedText,
+    builderBoostEndTime,
+    labBoostEndTime,
+    petBoostEndTime,
   ]);
 
   // Switch between village profiles or open rename modal if clicking already-active chip
@@ -1299,6 +1499,13 @@ export default function App() {
         trimmed,
         accData.petTimer || createEmptyTimer(),
         accData.targetPetTimestamp ?? null
+      );
+      void scheduleBoostExpiryNotificationsForVillage(
+        renamingAccountId,
+        trimmed,
+        renamingAccountId === activeAccountId ? builderBoostEndTime : accData.builderBoostEndTime,
+        renamingAccountId === activeAccountId ? labBoostEndTime : accData.labBoostEndTime,
+        renamingAccountId === activeAccountId ? petBoostEndTime : accData.petBoostEndTime
       );
     }
 
@@ -1510,7 +1717,8 @@ export default function App() {
   const computeLabScheduleValues = (
     mainTimerVal: BuilderTime,
     goblinTimerVal: BuilderTime,
-    potionCount: number
+    potionCount: number,
+    activeLabBoostSecs = getRemainingBoostSeconds(labBoostEndTime)
   ) => {
     const now = Date.now();
     const mainRemSec = getTimerTotalSeconds(mainTimerVal);
@@ -1521,7 +1729,7 @@ export default function App() {
     let mainSavedSec = 0;
 
     if (mainRemSec > 0) {
-      const realElapsedSec = calc24xRealTimeSeconds(mainRemSec, potionCount);
+      const realElapsedSec = calc24xRealTimeSeconds(mainRemSec, potionCount, activeLabBoostSecs);
       nextMainTs = now + Math.round(realElapsedSec * 1000);
       nextMainDate = formatCompletionDate(nextMainTs);
       mainSavedSec = Math.max(0, mainRemSec - realElapsedSec);
@@ -1532,7 +1740,7 @@ export default function App() {
     let goblinSavedSec = 0;
 
     if (goblinRemSec > 0) {
-      const realElapsedSec = calc24xRealTimeSeconds(goblinRemSec, potionCount);
+      const realElapsedSec = calc24xRealTimeSeconds(goblinRemSec, potionCount, activeLabBoostSecs);
       nextGoblinTs = now + Math.round(realElapsedSec * 1000);
       nextGoblinDate = formatCompletionDate(nextGoblinTs);
       goblinSavedSec = Math.max(0, goblinRemSec - realElapsedSec);
@@ -1553,9 +1761,19 @@ export default function App() {
     goblinTimerVal: BuilderTime,
     potionCount: number,
     targetVillageId: string = activeAccountId,
-    targetVillageName: string = getActiveVillageName(activeAccountId)
+    targetVillageName: string = getActiveVillageName(activeAccountId),
+    overrideLabBoostSeconds?: number
   ) => {
-    const res = computeLabScheduleValues(mainTimerVal, goblinTimerVal, potionCount);
+    const activeLabBoostSecs =
+      typeof overrideLabBoostSeconds === 'number'
+        ? overrideLabBoostSeconds
+        : getRemainingBoostSeconds(labBoostEndTime);
+    const res = computeLabScheduleValues(
+      mainTimerVal,
+      goblinTimerVal,
+      potionCount,
+      activeLabBoostSecs
+    );
     setTargetLabTimestamp(res.nextMainTs);
     setLabFormattedDate(res.nextMainDate);
     setTargetGoblinLabTimestamp(res.nextGoblinTs);
@@ -1646,7 +1864,11 @@ export default function App() {
     }
   };
 
-  const computePetScheduleValues = (petTimerVal: BuilderTime, potionCount: number) => {
+  const computePetScheduleValues = (
+    petTimerVal: BuilderTime,
+    potionCount: number,
+    activePetBoostSecs = getRemainingBoostSeconds(petBoostEndTime)
+  ) => {
     const now = Date.now();
     const petRemSec = getTimerTotalSeconds(petTimerVal);
 
@@ -1658,7 +1880,7 @@ export default function App() {
       };
     }
 
-    const realElapsedSec = calc24xRealTimeSeconds(petRemSec, potionCount);
+    const realElapsedSec = calc24xRealTimeSeconds(petRemSec, potionCount, activePetBoostSecs);
     const nextPetTs = now + Math.round(realElapsedSec * 1000);
     const savedSec = Math.max(0, petRemSec - realElapsedSec);
 
@@ -1673,9 +1895,14 @@ export default function App() {
     petTimerVal: BuilderTime,
     potionCount: number,
     targetVillageId: string = activeAccountId,
-    targetVillageName: string = getActiveVillageName(activeAccountId)
+    targetVillageName: string = getActiveVillageName(activeAccountId),
+    overridePetBoostSeconds?: number
   ) => {
-    const res = computePetScheduleValues(petTimerVal, potionCount);
+    const activePetBoostSecs =
+      typeof overridePetBoostSeconds === 'number'
+        ? overridePetBoostSeconds
+        : getRemainingBoostSeconds(petBoostEndTime);
+    const res = computePetScheduleValues(petTimerVal, potionCount, activePetBoostSecs);
     setTargetPetTimestamp(res.nextPetTs);
     setPetFormattedDate(res.nextPetDate);
     setPetSavedText(res.nextPetSavedText);
@@ -1795,28 +2022,34 @@ export default function App() {
     targetBuilders: BuilderTime[],
     targetPotionsStr: string,
     targetVillageId: string = activeAccountId,
-    targetVillageName: string = getActiveVillageName(activeAccountId)
+    targetVillageName: string = getActiveVillageName(activeAccountId),
+    overrideBuilderBoostSeconds?: number
   ): { computedResults: LockedResultItem[]; computedSavedText: string } => {
     const potions = Math.max(0, parseInt(targetPotionsStr, 10) || 0);
+    const activeBuilderBoostSecs =
+      typeof overrideBuilderBoostSeconds === 'number'
+        ? overrideBuilderBoostSeconds
+        : getRemainingBoostSeconds(builderBoostEndTime);
     const activeBuildersCount = targetMode === 'single' ? 1 : targetNumBuilders;
     const calcTimestamp = Date.now();
     const computedResults: LockedResultItem[] = [];
+    let totalSavedSecondsAllBuilders = 0;
 
     for (let i = 1; i <= activeBuildersCount; i++) {
       const b = targetBuilders[i - 1];
       if (!b) continue;
-      const d = Math.max(0, parseInt(b.d, 10) || 0);
-      const h = Math.min(24, Math.max(0, parseInt(b.h, 10) || 0));
-      const m = Math.min(60, Math.max(0, parseInt(b.m, 10) || 0));
-      const s = Math.max(0, b.s || 0);
+      const totalBuilderSeconds = getTimerTotalSeconds(b);
+      if (totalBuilderSeconds <= 0) continue;
 
-      const totalBuilderHours = d * 24 + h + m / 60 + s / 3600;
-      if (totalBuilderHours === 0) continue;
-
-      const realTimeHours = calcRealTime(totalBuilderHours, potions);
-      const realDurationMs = Math.round(realTimeHours * 3600 * 1000);
+      const realTimeSeconds = calc10xRealTimeSeconds(
+        totalBuilderSeconds,
+        potions,
+        activeBuilderBoostSecs
+      );
+      const realDurationMs = Math.round(realTimeSeconds * 1000);
       const targetTimestamp = calcTimestamp + realDurationMs;
       const formattedDate = formatCompletionDate(targetTimestamp);
+      totalSavedSecondsAllBuilders += Math.max(0, totalBuilderSeconds - realTimeSeconds);
 
       const isGoblin = targetMode === 'multi' && i === 7;
       const slotBadge = isGoblin ? '[GOBLIN]' : `[B${i}]`;
@@ -1860,17 +2093,7 @@ export default function App() {
       return { computedResults: [], computedSavedText: '' };
     }
 
-    const totalSavedHoursAllBuilders = potions * 9 * computedResults.length;
-    const savedDays = Math.floor(totalSavedHoursAllBuilders / 24);
-    const savedHours = totalSavedHoursAllBuilders % 24;
-
-    let computedSavedText = '';
-    if (potions === 0) {
-      computedSavedText = '0h';
-    } else {
-      if (savedDays > 0) computedSavedText += `${savedDays}d `;
-      if (savedHours > 0 || savedDays === 0) computedSavedText += `${savedHours}h`;
-    }
+    const computedSavedText = formatSavedSeconds(totalSavedSecondsAllBuilders);
 
     setShowResult(false);
     setLockedResults(computedResults);
@@ -1888,8 +2111,20 @@ export default function App() {
     runCalculationWithData(currentMode, numBuilders, builders, potionsInput);
   };
 
+  const handleBuilderBoostExpire = useCallback(() => {
+    setBuilderBoostEndTime(null);
+  }, []);
+
+  const handleLabBoostExpire = useCallback(() => {
+    setLabBoostEndTime(null);
+  }, []);
+
+  const handlePetBoostExpire = useCallback(() => {
+    setPetBoostEndTime(null);
+  }, []);
+
   // ============================================================================
-  // 3. JSON PARSER EXPANSION (BUILDERS + LABORATORY + PET HOUSE)
+  // 3. JSON PARSER EXPANSION (BUILDERS + LABORATORY + PET HOUSE + ACTIVE BOOSTS)
   // ============================================================================
   const handleImportVillageJson = () => {
     triggerHaptic(15);
@@ -1912,6 +2147,13 @@ export default function App() {
       showToast('error', 'Invalid JSON format');
       return;
     }
+
+    const data = parsedData;
+
+    // Extract active potion boost seconds directly from the `boosts` object
+    const builderBoostSeconds = Math.max(0, Math.floor(Number(data.boosts?.builder_boost) || 0));
+    const labBoostSeconds = Math.max(0, Math.floor(Number(data.boosts?.lab_boost) || 0));
+    const petBoostSeconds = Math.max(0, Math.floor(Number(data.boosts?.pet_boost) || 0));
 
     // 1. Scan Home Village Builder arrays: buildings, traps, heroes
     const homeItems: RawCoCItem[] = [
@@ -1944,11 +2186,22 @@ export default function App() {
     if (
       activeBuilderUpgrades.length === 0 &&
       activeLabUpgrades.length === 0 &&
-      activePetUpgrades.length === 0
+      activePetUpgrades.length === 0 &&
+      builderBoostSeconds === 0 &&
+      labBoostSeconds === 0 &&
+      petBoostSeconds === 0
     ) {
       showToast('error', 'No active Home Village upgrades found');
       return;
     }
+
+    const importNow = Date.now();
+    const nextBuilderBoostEndTime =
+      builderBoostSeconds > 0 ? importNow + builderBoostSeconds * 1000 : null;
+    const nextLabBoostEndTime =
+      labBoostSeconds > 0 ? importNow + labBoostSeconds * 1000 : null;
+    const nextPetBoostEndTime =
+      petBoostSeconds > 0 ? importNow + petBoostSeconds * 1000 : null;
 
     // Map Builders (1..6 regular + slot 7 Goblin Builder)
     const goblinBuilderItem = activeBuilderUpgrades.find((item) => item.extra === true);
@@ -1988,9 +2241,11 @@ export default function App() {
       ? convertRawItemToTimer(activePetItem, 'Active Pet Upgrade')
       : createEmptyTimer();
 
-    const targetPotions = isAddingNewAccount ? '' : potionsInput;
-    const targetResPotions = isAddingNewAccount ? 1 : researchPotions;
-    const targetPetPotionsCount = isAddingNewAccount ? 1 : petPotions;
+    const targetPotions = builderBoostSeconds > 0 || isAddingNewAccount ? '' : potionsInput;
+    const targetResPotions =
+      labBoostSeconds > 0 ? 0 : isAddingNewAccount ? 0 : researchPotions;
+    const targetPetPotionsCount =
+      petBoostSeconds > 0 ? 0 : isAddingNewAccount ? 0 : petPotions;
 
     const extractedTag =
       typeof parsedData.tag === 'string' && parsedData.tag.trim()
@@ -2006,13 +2261,23 @@ export default function App() {
       ? newAccountName
       : getActiveVillageName(activeAccountId);
 
+    // Schedule active boost expiry notifications via @capacitor/local-notifications
+    void scheduleBoostExpiryNotificationsForVillage(
+      targetVillageId,
+      targetVillageName,
+      nextBuilderBoostEndTime,
+      nextLabBoostEndTime,
+      nextPetBoostEndTime
+    );
+
     const { computedResults, computedSavedText } = runCalculationWithData(
       'multi',
       nextBuilderSliderCount,
       nextBuilders,
       targetPotions,
       targetVillageId,
-      targetVillageName
+      targetVillageName,
+      builderBoostSeconds
     );
 
     const labSched = computeLabSchedule(
@@ -2020,18 +2285,26 @@ export default function App() {
       nextGoblinLabTimer,
       targetResPotions,
       targetVillageId,
-      targetVillageName
+      targetVillageName,
+      labBoostSeconds
     );
     const petSched = computePetSchedule(
       nextPetTimer,
       targetPetPotionsCount,
       targetVillageId,
-      targetVillageName
+      targetVillageName,
+      petBoostSeconds
     );
 
     setLabTimer(nextLabTimer);
     setGoblinLabTimer(nextGoblinLabTimer);
     setPetTimer(nextPetTimer);
+    setBuilderBoostEndTime(nextBuilderBoostEndTime);
+    setLabBoostEndTime(nextLabBoostEndTime);
+    setPetBoostEndTime(nextPetBoostEndTime);
+    setPotionsInput(targetPotions);
+    setResearchPotions(targetResPotions);
+    setPetPotions(targetPetPotionsCount);
 
     if (isAddingNewAccount) {
       const newProfileState: SavedState = {
@@ -2055,6 +2328,9 @@ export default function App() {
         targetPetTimestamp: petSched.nextPetTs,
         petFormattedDate: petSched.nextPetDate,
         petSavedText: petSched.nextPetSavedText,
+        builderBoostEndTime: nextBuilderBoostEndTime,
+        labBoostEndTime: nextLabBoostEndTime,
+        petBoostEndTime: nextPetBoostEndTime,
       };
       const newProfile: VillageProfile = {
         id: newAccountId,
@@ -2064,9 +2340,6 @@ export default function App() {
       };
       setAccounts((prev) => [...prev, newProfile]);
       setActiveAccountId(newAccountId);
-      setPotionsInput(targetPotions);
-      setResearchPotions(targetResPotions);
-      setPetPotions(targetPetPotionsCount);
     }
 
     setCurrentMode('multi');
@@ -2074,11 +2347,11 @@ export default function App() {
     setBuilders(nextBuilders);
 
     // Switch to most relevant tab if builders are empty
-    if (totalLoadedBuilders > 0) {
+    if (totalLoadedBuilders > 0 || builderBoostSeconds > 0) {
       setActiveTab('builders');
-    } else if (activeLabUpgrades.length > 0) {
+    } else if (activeLabUpgrades.length > 0 || labBoostSeconds > 0) {
       setActiveTab('laboratory');
-    } else if (activePetUpgrades.length > 0) {
+    } else if (activePetUpgrades.length > 0 || petBoostSeconds > 0) {
       setActiveTab('pethouse');
     }
 
@@ -2091,6 +2364,13 @@ export default function App() {
     if (totalLoadedBuilders > 0) summaryParts.push(`${totalLoadedBuilders} builders`);
     if (activeLabUpgrades.length > 0) summaryParts.push(`${activeLabUpgrades.length} lab`);
     if (activePetUpgrades.length > 0) summaryParts.push(`${activePetUpgrades.length} pet`);
+    const activeBoostCount =
+      (builderBoostSeconds > 0 ? 1 : 0) +
+      (labBoostSeconds > 0 ? 1 : 0) +
+      (petBoostSeconds > 0 ? 1 : 0);
+    if (activeBoostCount > 0) {
+      summaryParts.push(`${activeBoostCount} active boost${activeBoostCount > 1 ? 's' : ''}`);
+    }
 
     showToast('success', `Loaded ${summaryParts.join(', ')}!`);
   };
@@ -2582,6 +2862,13 @@ export default function App() {
                   </button>
                 </div>
 
+                {/* Active Builder Boost Live Countdown Badge */}
+                <ActiveBoostHudBadge
+                  boostEndTime={builderBoostEndTime}
+                  variant="builders"
+                  onExpire={handleBuilderBoostExpire}
+                />
+
                 {/* Builder Potion Speed & Time Savings HUD Badge */}
                 <div className="mt-3 flex justify-center">
                   <span className="builder-speed-pill">
@@ -2767,6 +3054,13 @@ export default function App() {
                   +
                 </button>
               </div>
+
+              {/* Active Laboratory Boost Live Countdown Badge */}
+              <ActiveBoostHudBadge
+                boostEndTime={labBoostEndTime}
+                variant="laboratory"
+                onExpire={handleLabBoostExpire}
+              />
             </div>
 
             {/* Interactive Card for Current Lab Troop/Spell Upgrade */}
@@ -3100,6 +3394,13 @@ export default function App() {
                   +
                 </button>
               </div>
+
+              {/* Active Pet Boost Live Countdown Badge */}
+              <ActiveBoostHudBadge
+                boostEndTime={petBoostEndTime}
+                variant="pethouse"
+                onExpire={handlePetBoostExpire}
+              />
             </div>
 
             {/* Interactive Card for Active Pet Upgrade */}

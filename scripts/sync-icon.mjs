@@ -4,13 +4,20 @@ import path from 'node:path';
 const rootDir = process.cwd();
 const publicDir = path.join(rootDir, 'public');
 const iconPath = path.join(publicDir, 'icon.png');
+const upperIconPath = path.join(publicDir, 'Icon.png');
 const fallbackPwaIcon = path.join(publicDir, 'pwa-512x512.png');
 
-if (!fs.existsSync(iconPath) && fs.existsSync(fallbackPwaIcon)) {
+if (fs.existsSync(upperIconPath) && fs.statSync(upperIconPath).size > 0) {
+  fs.copyFileSync(upperIconPath, iconPath);
+} else if (fs.existsSync(iconPath) && fs.statSync(iconPath).size > 0 && fs.existsSync(upperIconPath)) {
+  fs.copyFileSync(iconPath, upperIconPath);
+}
+
+if ((!fs.existsSync(iconPath) || fs.statSync(iconPath).size === 0) && fs.existsSync(fallbackPwaIcon)) {
   fs.copyFileSync(fallbackPwaIcon, iconPath);
 }
 
-if (fs.existsSync(iconPath)) {
+if (fs.existsSync(iconPath) && fs.statSync(iconPath).size > 0) {
   const webTargets = [
     path.join(publicDir, 'pwa-512x512.png'),
     path.join(publicDir, 'pwa-192x192.png'),

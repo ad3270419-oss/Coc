@@ -12144,7 +12144,7 @@ var Weekday;
 	Weekday[Weekday["Saturday"] = 7] = "Saturday";
 })(Weekday || (Weekday = {}));
 // node_modules/@capacitor/local-notifications/dist/esm/index.js
-var LocalNotifications = registerPlugin("LocalNotifications", { web: () => __vitePreload(() => import("./web-CEDgCi0M.js").then((m) => new m.LocalNotificationsWeb()), []) });
+var LocalNotifications = registerPlugin("LocalNotifications", { web: () => __vitePreload(() => import("./web-DtmCSCKR.js").then((m) => new m.LocalNotificationsWeb()), []) });
 // node_modules/react/cjs/react-jsx-runtime.production.js
 /**
 * @license React
@@ -12459,6 +12459,32 @@ async function schedulePetNotificationForVillage(villageId, villageName, petTime
 		});
 	} else await cancelSlotNotification(villageId, "pet_main");
 }
+async function scheduleBoostExpiryNotificationsForVillage(villageId, villageName, builderBoostEndTime, labBoostEndTime, petBoostEndTime) {
+	if (builderBoostEndTime && builderBoostEndTime > Date.now() + 1e3) await scheduleExactSlotNotification({
+		villageId,
+		slotKey: "boost_builder",
+		title: `⚡ Builder Boost Expired • ${villageName}`,
+		body: `${villageName}: Builder Potion boost has ended! Upgrades are back to normal speed.`,
+		targetTimestamp: builderBoostEndTime
+	});
+	else await cancelSlotNotification(villageId, "boost_builder");
+	if (labBoostEndTime && labBoostEndTime > Date.now() + 1e3) await scheduleExactSlotNotification({
+		villageId,
+		slotKey: "boost_lab",
+		title: `⚡ Lab Boost Expired • ${villageName}`,
+		body: `${villageName}: Research Potion boost has ended!`,
+		targetTimestamp: labBoostEndTime
+	});
+	else await cancelSlotNotification(villageId, "boost_lab");
+	if (petBoostEndTime && petBoostEndTime > Date.now() + 1e3) await scheduleExactSlotNotification({
+		villageId,
+		slotKey: "boost_pet",
+		title: `⚡ Pet Boost Expired • ${villageName}`,
+		body: `${villageName}: Pet Potion boost has ended!`,
+		targetTimestamp: petBoostEndTime
+	});
+	else await cancelSlotNotification(villageId, "boost_pet");
+}
 async function cancelAllNotificationsForVillage(villageId) {
 	const map = loadScheduledAlertsMap();
 	const storedIds = Array.isArray(map[villageId]) ? map[villageId] : [];
@@ -12472,7 +12498,10 @@ async function cancelAllNotificationsForVillage(villageId) {
 		getSlotNotificationId(villageId, "builder_6"),
 		getSlotNotificationId(villageId, "lab_main"),
 		getSlotNotificationId(villageId, "lab_goblin"),
-		getSlotNotificationId(villageId, "pet_main")
+		getSlotNotificationId(villageId, "pet_main"),
+		getSlotNotificationId(villageId, "boost_builder"),
+		getSlotNotificationId(villageId, "boost_lab"),
+		getSlotNotificationId(villageId, "boost_pet")
 	];
 	const uniqueIds = Array.from(/* @__PURE__ */ new Set([...storedIds, ...deterministicSlotIds]));
 	delete map[villageId];
@@ -12515,7 +12544,10 @@ function createDefaultSavedState() {
 		petTimer: createEmptyTimer(),
 		targetPetTimestamp: null,
 		petFormattedDate: "",
-		petSavedText: ""
+		petSavedText: "",
+		builderBoostEndTime: null,
+		labBoostEndTime: null,
+		petBoostEndTime: null
 	};
 }
 function triggerHaptic(pattern = 15) {
@@ -12594,7 +12626,10 @@ function normalizeSavedState(parsed) {
 		petTimer: normalizeSingleTimer(parsed.petTimer, "Active Pet Upgrade"),
 		targetPetTimestamp: typeof parsed.targetPetTimestamp === "number" ? parsed.targetPetTimestamp : null,
 		petFormattedDate: typeof parsed.petFormattedDate === "string" ? parsed.petFormattedDate : "",
-		petSavedText: typeof parsed.petSavedText === "string" ? parsed.petSavedText : ""
+		petSavedText: typeof parsed.petSavedText === "string" ? parsed.petSavedText : "",
+		builderBoostEndTime: typeof parsed.builderBoostEndTime === "number" && parsed.builderBoostEndTime > 0 ? parsed.builderBoostEndTime : null,
+		labBoostEndTime: typeof parsed.labBoostEndTime === "number" && parsed.labBoostEndTime > 0 ? parsed.labBoostEndTime : null,
+		petBoostEndTime: typeof parsed.petBoostEndTime === "number" && parsed.petBoostEndTime > 0 ? parsed.petBoostEndTime : null
 	};
 }
 function loadLegacySingleAccountState() {
@@ -12649,24 +12684,33 @@ function loadMultiAccountStorage() {
 	}
 }
 /**
-* 10x Builder Potion Math (1 potion = 10h progress in 1h real time; saves 9h)
+* 10x Builder Potion Math (Boost-Aware):
+* - First `activeBoostSeconds` + `(potions * 3600)` real seconds run at 10x speed
+* - Each real-time second of 10x boost completes 10 seconds of upgrade time (saving 9s)
 */
-function calcRealTime(totalBuilderHours, potions) {
-	if (totalBuilderHours === 0) return 0;
-	if (totalBuilderHours <= potions * 10) return totalBuilderHours / 10;
-	else return totalBuilderHours - potions * 9;
+function calc10xRealTimeSeconds(remainingSeconds, potions, activeBoostSeconds = 0) {
+	if (remainingSeconds <= 0) return 0;
+	const totalBoostRealSeconds = Math.max(0, activeBoostSeconds) + Math.max(0, potions) * 3600;
+	const maxBoostCoverageSeconds = totalBoostRealSeconds * 10;
+	if (remainingSeconds <= maxBoostCoverageSeconds) return remainingSeconds / 10;
+	else return totalBoostRealSeconds + (remainingSeconds - maxBoostCoverageSeconds);
 }
 /**
-* 24x Research & Pet Potion Calculation Engine:
-* - 1 Potion = 24x Speed Boost for 1 Hour (3,600 seconds)
+* 24x Research & Pet Potion Calculation Engine (Boost-Aware):
+* - First `activeBoostSeconds` + `(potionCount * 3600)` real seconds run at 24x speed
 * - 1 Hour of potion boost consumes 24 hours (86,400 seconds) of upgrade progress
 * - Effective time saved per potion = 23 hours (82,800 seconds)
 */
-function calc24xRealTimeSeconds(remainingSeconds, potionCount) {
+function calc24xRealTimeSeconds(remainingSeconds, potionCount, activeBoostSeconds = 0) {
 	if (remainingSeconds <= 0) return 0;
-	const totalBoostCapacity = potionCount * 86400;
+	const totalBoostRealSeconds = Math.max(0, activeBoostSeconds) + Math.max(0, potionCount) * 3600;
+	const totalBoostCapacity = totalBoostRealSeconds * 24;
 	if (remainingSeconds <= totalBoostCapacity) return remainingSeconds / 24;
-	else return potionCount * 3600 + (remainingSeconds - totalBoostCapacity);
+	else return totalBoostRealSeconds + (remainingSeconds - totalBoostCapacity);
+}
+function getRemainingBoostSeconds(boostEndTime, now = Date.now()) {
+	if (!boostEndTime || boostEndTime <= now) return 0;
+	return Math.max(0, Math.ceil((boostEndTime - now) / 1e3));
 }
 function formatCompletionDate(timestamp) {
 	return new Date(timestamp).toLocaleString("en-US", {
@@ -12679,12 +12723,15 @@ function formatCompletionDate(timestamp) {
 }
 function formatSavedSeconds(savedSeconds) {
 	if (savedSeconds <= 0) return "0h";
-	const totalHours = Math.round(savedSeconds / 3600);
-	const days = Math.floor(totalHours / 24);
-	const hours = totalHours % 24;
+	const totalMinutes = Math.round(savedSeconds / 60);
+	const days = Math.floor(totalMinutes / 1440);
+	const hours = Math.floor(totalMinutes % 1440 / 60);
+	const mins = totalMinutes % 60;
 	let out = "";
 	if (days > 0) out += `${days}d `;
-	if (hours > 0 || days === 0) out += `${hours}h`;
+	if (hours > 0) out += `${hours}h `;
+	if (days === 0 && mins > 0) out += `${mins}m`;
+	if (!out.trim()) out = "0h";
 	return out.trim();
 }
 function getTimerTotalSeconds(timer) {
@@ -12948,6 +12995,49 @@ var HudTickerIdle = ({ label, accentUnitColorClass = "text-[#fbbf24]", statusNot
 		})]
 	});
 };
+/**
+* Active Boost Live Countdown Badge inside Potion HUD:
+* Renders "⚡ Active Boost: [MMm SSs remaining]" and ticks down every second in real-time.
+* Smoothly hides and resets when the timer reaches 0.
+*/
+var ActiveBoostHudBadge = import_react.memo(({ boostEndTime, variant, onExpire }) => {
+	const [remSeconds, setRemSeconds] = (0, import_react.useState)(() => getRemainingBoostSeconds(boostEndTime));
+	(0, import_react.useEffect)(() => {
+		const initialRem = getRemainingBoostSeconds(boostEndTime);
+		setRemSeconds(initialRem);
+		if (initialRem <= 0) {
+			if (boostEndTime) onExpire();
+			return;
+		}
+		const intervalId = window.setInterval(() => {
+			const nextRem = getRemainingBoostSeconds(boostEndTime);
+			if (nextRem <= 0) {
+				window.clearInterval(intervalId);
+				setRemSeconds(0);
+				triggerHaptic([
+					20,
+					40,
+					20
+				]);
+				onExpire();
+			} else setRemSeconds(nextRem);
+		}, 1e3);
+		return () => window.clearInterval(intervalId);
+	}, [boostEndTime, onExpire]);
+	if (!boostEndTime || remSeconds <= 0) return null;
+	const mins = Math.floor(remSeconds / 60);
+	const secs = remSeconds % 60;
+	const formattedTime = `${String(mins).padStart(2, "0")}m ${String(secs).padStart(2, "0")}s remaining`;
+	const themeClasses = variant === "builders" ? "bg-amber-500/20 text-[#fbbf24] border-amber-400/50 shadow-[0_0_16px_rgba(251,191,36,0.3)]" : variant === "laboratory" ? "bg-fuchsia-500/20 text-[#f0abfc] border-fuchsia-400/50 shadow-[0_0_16px_rgba(217,70,239,0.3)]" : "bg-emerald-500/20 text-emerald-300 border-emerald-400/50 shadow-[0_0_16px_rgba(16,185,129,0.3)]";
+	const dotColor = variant === "builders" ? "bg-[#fbbf24] shadow-[0_0_8px_#fbbf24]" : variant === "laboratory" ? "bg-[#f0abfc] shadow-[0_0_8px_#f0abfc]" : "bg-emerald-400 shadow-[0_0_8px_#34d399]";
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+		className: `mt-2.5 w-full rounded-xl px-3 py-2 border flex items-center justify-center gap-2 transition-all duration-300 ${themeClasses}`,
+		children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: `w-2 h-2 rounded-full animate-pulse shrink-0 ${dotColor}` }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+			className: "text-xs font-extrabold tracking-wide",
+			children: ["⚡ Active Boost: ", formattedTime]
+		})]
+	});
+});
 function App() {
 	const initialMulti = loadMultiAccountStorage();
 	const initialActiveProfile = initialMulti.accounts.find((a) => a.id === initialMulti.activeAccountId) || initialMulti.accounts[0];
@@ -12979,6 +13069,9 @@ function App() {
 	const [targetPetTimestamp, setTargetPetTimestamp] = (0, import_react.useState)(initial.targetPetTimestamp ?? null);
 	const [petFormattedDate, setPetFormattedDate] = (0, import_react.useState)(initial.petFormattedDate || "");
 	const [petSavedText, setPetSavedText] = (0, import_react.useState)(initial.petSavedText || "");
+	const [builderBoostEndTime, setBuilderBoostEndTime] = (0, import_react.useState)(initial.builderBoostEndTime && initial.builderBoostEndTime > Date.now() ? initial.builderBoostEndTime : null);
+	const [labBoostEndTime, setLabBoostEndTime] = (0, import_react.useState)(initial.labBoostEndTime && initial.labBoostEndTime > Date.now() ? initial.labBoostEndTime : null);
+	const [petBoostEndTime, setPetBoostEndTime] = (0, import_react.useState)(initial.petBoostEndTime && initial.petBoostEndTime > Date.now() ? initial.petBoostEndTime : null);
 	const [isImportModalOpen, setIsImportModalOpen] = (0, import_react.useState)(false);
 	const [isAddingNewAccount, setIsAddingNewAccount] = (0, import_react.useState)(false);
 	const [newVillageNameInput, setNewVillageNameInput] = (0, import_react.useState)("");
@@ -13002,6 +13095,7 @@ function App() {
 		requestNotificationPermissions();
 	}, []);
 	const applySavedStateToActiveView = (d) => {
+		const now = Date.now();
 		setCurrentMode(d.mode);
 		setNumBuilders(d.numBuilders);
 		setBuilders(d.builders);
@@ -13022,6 +13116,9 @@ function App() {
 		setTargetPetTimestamp(d.targetPetTimestamp ?? null);
 		setPetFormattedDate(d.petFormattedDate || "");
 		setPetSavedText(d.petSavedText || "");
+		setBuilderBoostEndTime(d.builderBoostEndTime && d.builderBoostEndTime > now ? d.builderBoostEndTime : null);
+		setLabBoostEndTime(d.labBoostEndTime && d.labBoostEndTime > now ? d.labBoostEndTime : null);
+		setPetBoostEndTime(d.petBoostEndTime && d.petBoostEndTime > now ? d.petBoostEndTime : null);
 		setAnimKey((prev) => prev + 1);
 	};
 	(0, import_react.useEffect)(() => {
@@ -13045,7 +13142,10 @@ function App() {
 				petTimer,
 				targetPetTimestamp,
 				petFormattedDate,
-				petSavedText
+				petSavedText,
+				builderBoostEndTime,
+				labBoostEndTime,
+				petBoostEndTime
 			};
 			localStorage.setItem(STORAGE_KEY, JSON.stringify(currentStateToSave));
 			setAccounts((prevAccounts) => {
@@ -13081,7 +13181,10 @@ function App() {
 		petTimer,
 		targetPetTimestamp,
 		petFormattedDate,
-		petSavedText
+		petSavedText,
+		builderBoostEndTime,
+		labBoostEndTime,
+		petBoostEndTime
 	]);
 	const handleAccountChipClick = (account) => {
 		triggerHaptic(15);
@@ -13124,6 +13227,7 @@ function App() {
 			scheduleBuilderNotificationsForVillage(renamingAccountId, trimmed, accData.lockedResults || []);
 			scheduleLabNotificationsForVillage(renamingAccountId, trimmed, accData.labTimer || createEmptyTimer(), accData.targetLabTimestamp ?? null, accData.goblinLabTimer || createEmptyTimer(), accData.targetGoblinLabTimestamp ?? null);
 			schedulePetNotificationForVillage(renamingAccountId, trimmed, accData.petTimer || createEmptyTimer(), accData.targetPetTimestamp ?? null);
+			scheduleBoostExpiryNotificationsForVillage(renamingAccountId, trimmed, renamingAccountId === activeAccountId ? builderBoostEndTime : accData.builderBoostEndTime, renamingAccountId === activeAccountId ? labBoostEndTime : accData.labBoostEndTime, renamingAccountId === activeAccountId ? petBoostEndTime : accData.petBoostEndTime);
 		}
 		setAccounts((prev) => {
 			const updated = prev.map((acc) => acc.id === renamingAccountId ? {
@@ -13290,7 +13394,7 @@ function App() {
 		const next = Math.min(999, Math.max(0, Math.max(0, parseInt(potionsInput, 10) || 0) + delta));
 		setPotionsInput(next === 0 ? "" : String(next));
 	};
-	const computeLabScheduleValues = (mainTimerVal, goblinTimerVal, potionCount) => {
+	const computeLabScheduleValues = (mainTimerVal, goblinTimerVal, potionCount, activeLabBoostSecs = getRemainingBoostSeconds(labBoostEndTime)) => {
 		const now = Date.now();
 		const mainRemSec = getTimerTotalSeconds(mainTimerVal);
 		const goblinRemSec = getTimerTotalSeconds(goblinTimerVal);
@@ -13298,7 +13402,7 @@ function App() {
 		let nextMainDate = "";
 		let mainSavedSec = 0;
 		if (mainRemSec > 0) {
-			const realElapsedSec = calc24xRealTimeSeconds(mainRemSec, potionCount);
+			const realElapsedSec = calc24xRealTimeSeconds(mainRemSec, potionCount, activeLabBoostSecs);
 			nextMainTs = now + Math.round(realElapsedSec * 1e3);
 			nextMainDate = formatCompletionDate(nextMainTs);
 			mainSavedSec = Math.max(0, mainRemSec - realElapsedSec);
@@ -13307,7 +13411,7 @@ function App() {
 		let nextGoblinDate = "";
 		let goblinSavedSec = 0;
 		if (goblinRemSec > 0) {
-			const realElapsedSec = calc24xRealTimeSeconds(goblinRemSec, potionCount);
+			const realElapsedSec = calc24xRealTimeSeconds(goblinRemSec, potionCount, activeLabBoostSecs);
 			nextGoblinTs = now + Math.round(realElapsedSec * 1e3);
 			nextGoblinDate = formatCompletionDate(nextGoblinTs);
 			goblinSavedSec = Math.max(0, goblinRemSec - realElapsedSec);
@@ -13321,8 +13425,9 @@ function App() {
 			nextLabSavedText: formatSavedSeconds(totalSavedSec)
 		};
 	};
-	const computeLabSchedule = (mainTimerVal, goblinTimerVal, potionCount, targetVillageId = activeAccountId, targetVillageName = getActiveVillageName(activeAccountId)) => {
-		const res = computeLabScheduleValues(mainTimerVal, goblinTimerVal, potionCount);
+	const computeLabSchedule = (mainTimerVal, goblinTimerVal, potionCount, targetVillageId = activeAccountId, targetVillageName = getActiveVillageName(activeAccountId), overrideLabBoostSeconds) => {
+		const activeLabBoostSecs = typeof overrideLabBoostSeconds === "number" ? overrideLabBoostSeconds : getRemainingBoostSeconds(labBoostEndTime);
+		const res = computeLabScheduleValues(mainTimerVal, goblinTimerVal, potionCount, activeLabBoostSecs);
 		setTargetLabTimestamp(res.nextMainTs);
 		setLabFormattedDate(res.nextMainDate);
 		setTargetGoblinLabTimestamp(res.nextGoblinTs);
@@ -13397,7 +13502,7 @@ function App() {
 			computeLabSchedule(labTimer, empty, researchPotions);
 		}
 	};
-	const computePetScheduleValues = (petTimerVal, potionCount) => {
+	const computePetScheduleValues = (petTimerVal, potionCount, activePetBoostSecs = getRemainingBoostSeconds(petBoostEndTime)) => {
 		const now = Date.now();
 		const petRemSec = getTimerTotalSeconds(petTimerVal);
 		if (petRemSec <= 0) return {
@@ -13405,7 +13510,7 @@ function App() {
 			nextPetDate: "",
 			nextPetSavedText: ""
 		};
-		const realElapsedSec = calc24xRealTimeSeconds(petRemSec, potionCount);
+		const realElapsedSec = calc24xRealTimeSeconds(petRemSec, potionCount, activePetBoostSecs);
 		const nextPetTs = now + Math.round(realElapsedSec * 1e3);
 		const savedSec = Math.max(0, petRemSec - realElapsedSec);
 		return {
@@ -13414,8 +13519,9 @@ function App() {
 			nextPetSavedText: formatSavedSeconds(savedSec)
 		};
 	};
-	const computePetSchedule = (petTimerVal, potionCount, targetVillageId = activeAccountId, targetVillageName = getActiveVillageName(activeAccountId)) => {
-		const res = computePetScheduleValues(petTimerVal, potionCount);
+	const computePetSchedule = (petTimerVal, potionCount, targetVillageId = activeAccountId, targetVillageName = getActiveVillageName(activeAccountId), overridePetBoostSeconds) => {
+		const activePetBoostSecs = typeof overridePetBoostSeconds === "number" ? overridePetBoostSeconds : getRemainingBoostSeconds(petBoostEndTime);
+		const res = computePetScheduleValues(petTimerVal, potionCount, activePetBoostSecs);
 		setTargetPetTimestamp(res.nextPetTs);
 		setPetFormattedDate(res.nextPetDate);
 		setPetSavedText(res.nextPetSavedText);
@@ -13499,23 +13605,22 @@ function App() {
 		setShowResult(false);
 		scheduleBuilderNotificationsForVillage(activeAccountId, getActiveVillageName(activeAccountId), []);
 	};
-	const runCalculationWithData = (targetMode, targetNumBuilders, targetBuilders, targetPotionsStr, targetVillageId = activeAccountId, targetVillageName = getActiveVillageName(activeAccountId)) => {
+	const runCalculationWithData = (targetMode, targetNumBuilders, targetBuilders, targetPotionsStr, targetVillageId = activeAccountId, targetVillageName = getActiveVillageName(activeAccountId), overrideBuilderBoostSeconds) => {
 		const potions = Math.max(0, parseInt(targetPotionsStr, 10) || 0);
+		const activeBuilderBoostSecs = typeof overrideBuilderBoostSeconds === "number" ? overrideBuilderBoostSeconds : getRemainingBoostSeconds(builderBoostEndTime);
 		const activeBuildersCount = targetMode === "single" ? 1 : targetNumBuilders;
 		const calcTimestamp = Date.now();
 		const computedResults = [];
+		let totalSavedSecondsAllBuilders = 0;
 		for (let i = 1; i <= activeBuildersCount; i++) {
 			const b = targetBuilders[i - 1];
 			if (!b) continue;
-			const d = Math.max(0, parseInt(b.d, 10) || 0);
-			const h = Math.min(24, Math.max(0, parseInt(b.h, 10) || 0));
-			const m = Math.min(60, Math.max(0, parseInt(b.m, 10) || 0));
-			const s = Math.max(0, b.s || 0);
-			const totalBuilderHours = d * 24 + h + m / 60 + s / 3600;
-			if (totalBuilderHours === 0) continue;
-			const realTimeHours = calcRealTime(totalBuilderHours, potions);
-			const targetTimestamp = calcTimestamp + Math.round(realTimeHours * 3600 * 1e3);
+			const totalBuilderSeconds = getTimerTotalSeconds(b);
+			if (totalBuilderSeconds <= 0) continue;
+			const realTimeSeconds = calc10xRealTimeSeconds(totalBuilderSeconds, potions, activeBuilderBoostSecs);
+			const targetTimestamp = calcTimestamp + Math.round(realTimeSeconds * 1e3);
 			const formattedDate = formatCompletionDate(targetTimestamp);
+			totalSavedSecondsAllBuilders += Math.max(0, totalBuilderSeconds - realTimeSeconds);
 			const isGoblin = targetMode === "multi" && i === 7;
 			const slotBadge = isGoblin ? "[GOBLIN]" : `[B${i}]`;
 			const defaultTitle = targetMode === "single" ? "Defense Upgrade" : isGoblin ? "Goblin Builder" : `Builder ${i} Upgrade`;
@@ -13542,15 +13647,7 @@ function App() {
 				computedSavedText: ""
 			};
 		}
-		const totalSavedHoursAllBuilders = potions * 9 * computedResults.length;
-		const savedDays = Math.floor(totalSavedHoursAllBuilders / 24);
-		const savedHours = totalSavedHoursAllBuilders % 24;
-		let computedSavedText = "";
-		if (potions === 0) computedSavedText = "0h";
-		else {
-			if (savedDays > 0) computedSavedText += `${savedDays}d `;
-			if (savedHours > 0 || savedDays === 0) computedSavedText += `${savedHours}h`;
-		}
+		const computedSavedText = formatSavedSeconds(totalSavedSecondsAllBuilders);
 		setShowResult(false);
 		setLockedResults(computedResults);
 		setSavedText(computedSavedText);
@@ -13567,6 +13664,15 @@ function App() {
 		triggerHaptic(18);
 		runCalculationWithData(currentMode, numBuilders, builders, potionsInput);
 	};
+	const handleBuilderBoostExpire = (0, import_react.useCallback)(() => {
+		setBuilderBoostEndTime(null);
+	}, []);
+	const handleLabBoostExpire = (0, import_react.useCallback)(() => {
+		setLabBoostEndTime(null);
+	}, []);
+	const handlePetBoostExpire = (0, import_react.useCallback)(() => {
+		setPetBoostEndTime(null);
+	}, []);
 	const handleImportVillageJson = () => {
 		triggerHaptic(15);
 		requestNotificationPermissions();
@@ -13586,6 +13692,10 @@ function App() {
 			showToast("error", "Invalid JSON format");
 			return;
 		}
+		const data = parsedData;
+		const builderBoostSeconds = Math.max(0, Math.floor(Number(data.boosts?.builder_boost) || 0));
+		const labBoostSeconds = Math.max(0, Math.floor(Number(data.boosts?.lab_boost) || 0));
+		const petBoostSeconds = Math.max(0, Math.floor(Number(data.boosts?.pet_boost) || 0));
 		const activeBuilderUpgrades = [
 			...Array.isArray(parsedData.buildings) ? parsedData.buildings : [],
 			...Array.isArray(parsedData.traps) ? parsedData.traps : [],
@@ -13597,10 +13707,14 @@ function App() {
 			...Array.isArray(parsedData.siege_machines) ? parsedData.siege_machines : []
 		].filter((item) => item && typeof item.timer === "number" && item.timer > 0);
 		const activePetUpgrades = (Array.isArray(parsedData.pets) ? parsedData.pets : []).filter((item) => item && typeof item.timer === "number" && item.timer > 0);
-		if (activeBuilderUpgrades.length === 0 && activeLabUpgrades.length === 0 && activePetUpgrades.length === 0) {
+		if (activeBuilderUpgrades.length === 0 && activeLabUpgrades.length === 0 && activePetUpgrades.length === 0 && builderBoostSeconds === 0 && labBoostSeconds === 0 && petBoostSeconds === 0) {
 			showToast("error", "No active Home Village upgrades found");
 			return;
 		}
+		const importNow = Date.now();
+		const nextBuilderBoostEndTime = builderBoostSeconds > 0 ? importNow + builderBoostSeconds * 1e3 : null;
+		const nextLabBoostEndTime = labBoostSeconds > 0 ? importNow + labBoostSeconds * 1e3 : null;
+		const nextPetBoostEndTime = petBoostSeconds > 0 ? importNow + petBoostSeconds * 1e3 : null;
 		const goblinBuilderItem = activeBuilderUpgrades.find((item) => item.extra === true);
 		const regularBuilderItems = activeBuilderUpgrades.filter((item) => item.extra !== true).slice(0, 6);
 		const nextBuilders = createEmptyBuilders();
@@ -13616,20 +13730,27 @@ function App() {
 		const nextGoblinLabTimer = goblinLabItem ? convertRawItemToTimer(goblinLabItem, "Goblin Researcher") : createEmptyTimer();
 		const activePetItem = activePetUpgrades[0];
 		const nextPetTimer = activePetItem ? convertRawItemToTimer(activePetItem, "Active Pet Upgrade") : createEmptyTimer();
-		const targetPotions = isAddingNewAccount ? "" : potionsInput;
-		const targetResPotions = isAddingNewAccount ? 1 : researchPotions;
-		const targetPetPotionsCount = isAddingNewAccount ? 1 : petPotions;
+		const targetPotions = builderBoostSeconds > 0 || isAddingNewAccount ? "" : potionsInput;
+		const targetResPotions = labBoostSeconds > 0 ? 0 : isAddingNewAccount ? 0 : researchPotions;
+		const targetPetPotionsCount = petBoostSeconds > 0 ? 0 : isAddingNewAccount ? 0 : petPotions;
 		const extractedTag = typeof parsedData.tag === "string" && parsedData.tag.trim() ? parsedData.tag.trim() : void 0;
 		const newAccountName = newVillageNameInput.trim() || (extractedTag ? `Village ${extractedTag}` : `Village ${accounts.length + 1}`);
 		const newAccountId = `village_${Date.now()}`;
 		const targetVillageId = isAddingNewAccount ? newAccountId : activeAccountId;
 		const targetVillageName = isAddingNewAccount ? newAccountName : getActiveVillageName(activeAccountId);
-		const { computedResults, computedSavedText } = runCalculationWithData("multi", nextBuilderSliderCount, nextBuilders, targetPotions, targetVillageId, targetVillageName);
-		const labSched = computeLabSchedule(nextLabTimer, nextGoblinLabTimer, targetResPotions, targetVillageId, targetVillageName);
-		const petSched = computePetSchedule(nextPetTimer, targetPetPotionsCount, targetVillageId, targetVillageName);
+		scheduleBoostExpiryNotificationsForVillage(targetVillageId, targetVillageName, nextBuilderBoostEndTime, nextLabBoostEndTime, nextPetBoostEndTime);
+		const { computedResults, computedSavedText } = runCalculationWithData("multi", nextBuilderSliderCount, nextBuilders, targetPotions, targetVillageId, targetVillageName, builderBoostSeconds);
+		const labSched = computeLabSchedule(nextLabTimer, nextGoblinLabTimer, targetResPotions, targetVillageId, targetVillageName, labBoostSeconds);
+		const petSched = computePetSchedule(nextPetTimer, targetPetPotionsCount, targetVillageId, targetVillageName, petBoostSeconds);
 		setLabTimer(nextLabTimer);
 		setGoblinLabTimer(nextGoblinLabTimer);
 		setPetTimer(nextPetTimer);
+		setBuilderBoostEndTime(nextBuilderBoostEndTime);
+		setLabBoostEndTime(nextLabBoostEndTime);
+		setPetBoostEndTime(nextPetBoostEndTime);
+		setPotionsInput(targetPotions);
+		setResearchPotions(targetResPotions);
+		setPetPotions(targetPetPotionsCount);
 		if (isAddingNewAccount) {
 			const newProfile = {
 				id: newAccountId,
@@ -13655,21 +13776,21 @@ function App() {
 					petTimer: nextPetTimer,
 					targetPetTimestamp: petSched.nextPetTs,
 					petFormattedDate: petSched.nextPetDate,
-					petSavedText: petSched.nextPetSavedText
+					petSavedText: petSched.nextPetSavedText,
+					builderBoostEndTime: nextBuilderBoostEndTime,
+					labBoostEndTime: nextLabBoostEndTime,
+					petBoostEndTime: nextPetBoostEndTime
 				}
 			};
 			setAccounts((prev) => [...prev, newProfile]);
 			setActiveAccountId(newAccountId);
-			setPotionsInput(targetPotions);
-			setResearchPotions(targetResPotions);
-			setPetPotions(targetPetPotionsCount);
 		}
 		setCurrentMode("multi");
 		setNumBuilders(nextBuilderSliderCount);
 		setBuilders(nextBuilders);
-		if (totalLoadedBuilders > 0) setActiveTab("builders");
-		else if (activeLabUpgrades.length > 0) setActiveTab("laboratory");
-		else if (activePetUpgrades.length > 0) setActiveTab("pethouse");
+		if (totalLoadedBuilders > 0 || builderBoostSeconds > 0) setActiveTab("builders");
+		else if (activeLabUpgrades.length > 0 || labBoostSeconds > 0) setActiveTab("laboratory");
+		else if (activePetUpgrades.length > 0 || petBoostSeconds > 0) setActiveTab("pethouse");
 		setIsImportModalOpen(false);
 		setIsAddingNewAccount(false);
 		setNewVillageNameInput("");
@@ -13678,6 +13799,8 @@ function App() {
 		if (totalLoadedBuilders > 0) summaryParts.push(`${totalLoadedBuilders} builders`);
 		if (activeLabUpgrades.length > 0) summaryParts.push(`${activeLabUpgrades.length} lab`);
 		if (activePetUpgrades.length > 0) summaryParts.push(`${activePetUpgrades.length} pet`);
+		const activeBoostCount = (builderBoostSeconds > 0 ? 1 : 0) + (labBoostSeconds > 0 ? 1 : 0) + (petBoostSeconds > 0 ? 1 : 0);
+		if (activeBoostCount > 0) summaryParts.push(`${activeBoostCount} active boost${activeBoostCount > 1 ? "s" : ""}`);
 		showToast("success", `Loaded ${summaryParts.join(", ")}!`);
 	};
 	const activeBuildersToRender = currentMode === "single" ? 1 : numBuilders;
@@ -14115,6 +14238,11 @@ function App() {
 													})
 												]
 											}),
+											/* @__PURE__ */ (0, import_jsx_runtime.jsx)(ActiveBoostHudBadge, {
+												boostEndTime: builderBoostEndTime,
+												variant: "builders",
+												onExpire: handleBuilderBoostExpire
+											}),
 											/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 												className: "mt-3 flex justify-center",
 												children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
@@ -14246,48 +14374,56 @@ function App() {
 						children: [
 							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 								className: "builder-card accent-hero rounded-2xl p-4",
-								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-									className: "flex items-center justify-between mb-2.5",
-									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-										className: "text-xs font-extrabold uppercase tracking-wider text-[#f0abfc]",
-										children: "⚗️ Research Boost HUD"
-									}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-										className: "text-[11px] font-extrabold px-2 py-0.5 rounded-md bg-fuchsia-500/20 text-[#f0abfc] border border-fuchsia-400/40",
-										children: "24x Speed Boost"
-									})]
-								}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-									className: "flex items-center justify-between gap-2.5 bg-black/40 rounded-xl p-2 border border-white/10",
-									children: [
-										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-											type: "button",
-											onClick: () => adjustResearchPotions(-1),
-											className: "tactile w-10 h-10 rounded-lg bg-white/10 hover:bg-white/20 text-white font-extrabold text-lg flex items-center justify-center border border-white/15 cursor-pointer",
-											"aria-label": "Decrease Research Potion",
-											children: "−"
-										}),
-										/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-											className: "text-center",
-											children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-												className: "text-sm sm:text-base font-extrabold text-[#f8fafc]",
-												children: [
-													researchPotions,
-													" ",
-													researchPotions === 1 ? "Research Potion" : "Research Potions"
-												]
-											}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-												className: "text-[10px] font-bold text-fuchsia-300/90",
-												children: "24x Speed Boost (Saves 23h per potion)"
-											})]
-										}),
-										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-											type: "button",
-											onClick: () => adjustResearchPotions(1),
-											className: "tactile w-10 h-10 rounded-lg bg-fuchsia-500/20 hover:bg-fuchsia-500/30 text-[#f0abfc] font-extrabold text-lg flex items-center justify-center border border-fuchsia-400/40 cursor-pointer",
-											"aria-label": "Increase Research Potion",
-											children: "+"
-										})
-									]
-								})]
+								children: [
+									/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+										className: "flex items-center justify-between mb-2.5",
+										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+											className: "text-xs font-extrabold uppercase tracking-wider text-[#f0abfc]",
+											children: "⚗️ Research Boost HUD"
+										}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+											className: "text-[11px] font-extrabold px-2 py-0.5 rounded-md bg-fuchsia-500/20 text-[#f0abfc] border border-fuchsia-400/40",
+											children: "24x Speed Boost"
+										})]
+									}),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+										className: "flex items-center justify-between gap-2.5 bg-black/40 rounded-xl p-2 border border-white/10",
+										children: [
+											/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+												type: "button",
+												onClick: () => adjustResearchPotions(-1),
+												className: "tactile w-10 h-10 rounded-lg bg-white/10 hover:bg-white/20 text-white font-extrabold text-lg flex items-center justify-center border border-white/15 cursor-pointer",
+												"aria-label": "Decrease Research Potion",
+												children: "−"
+											}),
+											/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+												className: "text-center",
+												children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+													className: "text-sm sm:text-base font-extrabold text-[#f8fafc]",
+													children: [
+														researchPotions,
+														" ",
+														researchPotions === 1 ? "Research Potion" : "Research Potions"
+													]
+												}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+													className: "text-[10px] font-bold text-fuchsia-300/90",
+													children: "24x Speed Boost (Saves 23h per potion)"
+												})]
+											}),
+											/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+												type: "button",
+												onClick: () => adjustResearchPotions(1),
+												className: "tactile w-10 h-10 rounded-lg bg-fuchsia-500/20 hover:bg-fuchsia-500/30 text-[#f0abfc] font-extrabold text-lg flex items-center justify-center border border-fuchsia-400/40 cursor-pointer",
+												"aria-label": "Increase Research Potion",
+												children: "+"
+											})
+										]
+									}),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)(ActiveBoostHudBadge, {
+										boostEndTime: labBoostEndTime,
+										variant: "laboratory",
+										onExpire: handleLabBoostExpire
+									})
+								]
 							}),
 							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 								className: "builder-card accent-hero rounded-2xl p-4",
@@ -14622,48 +14758,56 @@ function App() {
 						children: [
 							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 								className: "builder-card accent-pet rounded-2xl p-4",
-								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-									className: "flex items-center justify-between mb-2.5",
-									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-										className: "text-xs font-extrabold uppercase tracking-wider text-emerald-300",
-										children: "🐾 Pet Potion Boost HUD"
-									}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-										className: "text-[11px] font-extrabold px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-400/40",
-										children: "24x Speed Boost"
-									})]
-								}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-									className: "flex items-center justify-between gap-2.5 bg-black/40 rounded-xl p-2 border border-white/10",
-									children: [
-										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-											type: "button",
-											onClick: () => adjustPetPotions(-1),
-											className: "tactile w-10 h-10 rounded-lg bg-white/10 hover:bg-white/20 text-white font-extrabold text-lg flex items-center justify-center border border-white/15 cursor-pointer",
-											"aria-label": "Decrease Pet Potion",
-											children: "−"
-										}),
-										/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-											className: "text-center",
-											children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-												className: "text-sm sm:text-base font-extrabold text-[#f8fafc]",
-												children: [
-													petPotions,
-													" ",
-													petPotions === 1 ? "Pet Potion" : "Pet Potions"
-												]
-											}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-												className: "text-[10px] font-bold text-emerald-300/90",
-												children: "24x Speed Boost (Saves 23h per potion)"
-											})]
-										}),
-										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-											type: "button",
-											onClick: () => adjustPetPotions(1),
-											className: "tactile w-10 h-10 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 font-extrabold text-lg flex items-center justify-center border border-emerald-400/40 cursor-pointer",
-											"aria-label": "Increase Pet Potion",
-											children: "+"
-										})
-									]
-								})]
+								children: [
+									/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+										className: "flex items-center justify-between mb-2.5",
+										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+											className: "text-xs font-extrabold uppercase tracking-wider text-emerald-300",
+											children: "🐾 Pet Potion Boost HUD"
+										}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+											className: "text-[11px] font-extrabold px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-400/40",
+											children: "24x Speed Boost"
+										})]
+									}),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+										className: "flex items-center justify-between gap-2.5 bg-black/40 rounded-xl p-2 border border-white/10",
+										children: [
+											/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+												type: "button",
+												onClick: () => adjustPetPotions(-1),
+												className: "tactile w-10 h-10 rounded-lg bg-white/10 hover:bg-white/20 text-white font-extrabold text-lg flex items-center justify-center border border-white/15 cursor-pointer",
+												"aria-label": "Decrease Pet Potion",
+												children: "−"
+											}),
+											/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+												className: "text-center",
+												children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+													className: "text-sm sm:text-base font-extrabold text-[#f8fafc]",
+													children: [
+														petPotions,
+														" ",
+														petPotions === 1 ? "Pet Potion" : "Pet Potions"
+													]
+												}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+													className: "text-[10px] font-bold text-emerald-300/90",
+													children: "24x Speed Boost (Saves 23h per potion)"
+												})]
+											}),
+											/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+												type: "button",
+												onClick: () => adjustPetPotions(1),
+												className: "tactile w-10 h-10 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 font-extrabold text-lg flex items-center justify-center border border-emerald-400/40 cursor-pointer",
+												"aria-label": "Increase Pet Potion",
+												children: "+"
+											})
+										]
+									}),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)(ActiveBoostHudBadge, {
+										boostEndTime: petBoostEndTime,
+										variant: "pethouse",
+										onExpire: handlePetBoostExpire
+									})
+								]
 							}),
 							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 								className: "builder-card accent-pet rounded-2xl p-4",

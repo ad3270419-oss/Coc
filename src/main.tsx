@@ -5,20 +5,21 @@ import {StatusBar, Style} from '@capacitor/status-bar';
 import App from './App.tsx';
 import './index.css';
 
-async function initNativeEdgeToEdgeStatusBar() {
+async function initNativeStatusBarTheme() {
   if (!Capacitor.isNativePlatform()) return;
   try {
-    await StatusBar.setOverlaysWebView({ overlay: true });
+    await StatusBar.setOverlaysWebView({ overlay: false });
     await StatusBar.setStyle({ style: Style.Dark });
-    await StatusBar.setBackgroundColor({ color: '#00000000' });
+    await StatusBar.setBackgroundColor({ color: '#0f172a' });
   } catch {
     // Ignore on platforms where status bar customization is unsupported
   }
 }
 
-void initNativeEdgeToEdgeStatusBar();
+void initNativeStatusBarTheme();
 registerSW({ immediate: true });
 
 createRoot(document.getElementById('root')!).render(<App />);
+
 
 

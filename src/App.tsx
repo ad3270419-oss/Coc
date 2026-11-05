@@ -5112,7 +5112,7 @@ export default function App() {
     .filter((item): item is NonNullable<typeof item> => item !== null);
 
   return (
-    <div className="app-edge-to-edge-wrapper w-full flex flex-col items-center justify-center sm:p-6 overflow-y-auto overflow-x-hidden">
+    <div className="min-h-dvh w-full flex flex-col items-center justify-center p-3 sm:p-6 overflow-y-auto overflow-x-hidden">
       {/* Toast Notification */}
       {toast && (
         <div

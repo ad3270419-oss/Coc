@@ -7,6 +7,11 @@
       "smallIcon": "ic_launcher",
       "iconColor": "#fbbf24",
       "sound": "default"
+    },
+    "StatusBar": {
+      "overlaysWebView": true,
+      "style": "DARK",
+      "backgroundColor": "#00000000"
     }
   }
 }

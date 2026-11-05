@@ -1,16 +1,30 @@
 @import "tailwindcss";
 
+html,
+body,
+#root {
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
 body {
   font-family: 'Poppins', sans-serif;
   /* Dark blue/purple gradient matching Clash of Clans night village / magic theme */
   background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%);
   background-attachment: fixed;
   color: #ffffff;
-  min-height: 100vh;
-  min-height: 100dvh;
   margin: 0;
   overscroll-behavior-y: contain;
   -webkit-tap-highlight-color: transparent;
+}
+
+.app-edge-to-edge-wrapper {
+  min-height: 100vh;
+  min-height: 100dvh;
+  padding-top: max(16px, env(safe-area-inset-top));
+  padding-bottom: max(12px, env(safe-area-inset-bottom));
+  padding-left: max(12px, env(safe-area-inset-left));
+  padding-right: max(12px, env(safe-area-inset-right));
 }
 
 /* Glassmorphism styling */

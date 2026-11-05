@@ -273,6 +273,7 @@ interface RawCoCBoosts {
 
 interface RawCoCVillage {
   tag?: string;
+  timestamp?: number;
   buildings?: RawCoCItem[];
   traps?: RawCoCItem[];
   heroes?: RawCoCItem[];
@@ -472,6 +473,165 @@ function formatCumulativeModalTime(totalSeconds: number): string {
   const hours = Math.floor((totalMinutes % 1440) / 60);
   const mins = totalMinutes % 60;
   return `${days}d ${hours}h ${mins}m`;
+}
+
+interface BoostImportTrackEntry {
+  rawBoostSeconds: number;
+  jsonTimestamp: number | null;
+  startTimestamp: number;
+  expiryTimestamp: number;
+  creditedPotions: number;
+}
+
+interface LastImportedBoostState {
+  builder?: BoostImportTrackEntry;
+  lab?: BoostImportTrackEntry;
+  pet?: BoostImportTrackEntry;
+}
+
+function getLastImportedBoostStorageKey(playerTag: string): string {
+  const normalizedTag = playerTag.trim().toUpperCase();
+  return `lastImportedBoostState_${normalizedTag}`;
+}
+
+function loadLastImportedBoostState(playerTag: string | undefined | null): LastImportedBoostState {
+  const cleanedTag = playerTag?.trim();
+  if (!cleanedTag) return {};
+  try {
+    const raw = localStorage.getItem(getLastImportedBoostStorageKey(cleanedTag));
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as LastImportedBoostState;
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveLastImportedBoostState(
+  playerTag: string | undefined | null,
+  state: LastImportedBoostState
+): void {
+  const cleanedTag = playerTag?.trim();
+  if (!cleanedTag) return;
+  try {
+    localStorage.setItem(getLastImportedBoostStorageKey(cleanedTag), JSON.stringify(state));
+  } catch {
+    // Ignore storage quota errors
+  }
+}
+
+function updateManualBoostTrackSlot(
+  playerTag: string | undefined | null,
+  slot: 'builder' | 'lab' | 'pet',
+  totalBoostSeconds: number,
+  nextBoostEndTime: number | null,
+  addedPotions: number
+): void {
+  const cleanedTag = playerTag?.trim();
+  if (!cleanedTag) return;
+  const current = loadLastImportedBoostState(cleanedTag);
+  if (!nextBoostEndTime || totalBoostSeconds <= 0) {
+    const nextState: LastImportedBoostState = { ...current };
+    delete nextState[slot];
+    saveLastImportedBoostState(cleanedTag, nextState);
+    return;
+  }
+  const prevSlot = current[slot];
+  const now = Date.now();
+  const prevActivePotions =
+    prevSlot && prevSlot.expiryTimestamp > now ? prevSlot.creditedPotions : 0;
+  const totalPotions = Math.max(
+    Math.ceil(totalBoostSeconds / 3600),
+    prevActivePotions + Math.max(0, addedPotions)
+  );
+  saveLastImportedBoostState(cleanedTag, {
+    ...current,
+    [slot]: {
+      rawBoostSeconds: Math.floor(totalBoostSeconds),
+      jsonTimestamp: null,
+      startTimestamp: prevSlot && prevSlot.expiryTimestamp > now ? prevSlot.startTimestamp : now,
+      expiryTimestamp: nextBoostEndTime,
+      creditedPotions: totalPotions,
+    },
+  });
+}
+
+function computeNewlyCreditedBoostPotions(
+  boostRemainingSeconds: number,
+  prevEntry: BoostImportTrackEntry | undefined,
+  importNow: number,
+  jsonTimestamp: number | null
+): { potionsToCredit: number; nextEntry: BoostImportTrackEntry | undefined } {
+  if (boostRemainingSeconds <= 0) {
+    return { potionsToCredit: 0, nextEntry: undefined };
+  }
+
+  const totalPotionsInJson = Math.ceil(boostRemainingSeconds / 3600);
+  const newExpiryTimestamp = importNow + boostRemainingSeconds * 1000;
+
+  // Brand-new active boost session (no previous active session, or previous session already expired)
+  if (!prevEntry || importNow >= prevEntry.expiryTimestamp) {
+    return {
+      potionsToCredit: totalPotionsInJson,
+      nextEntry: {
+        rawBoostSeconds: boostRemainingSeconds,
+        jsonTimestamp,
+        startTimestamp: importNow,
+        expiryTimestamp: newExpiryTimestamp,
+        creditedPotions: totalPotionsInJson,
+      },
+    };
+  }
+
+  // Previous boost session is still active.
+  // Guard 1: Exact same JSON re-imported (identical remaining boost seconds or same/older JSON export timestamp)
+  if (
+    prevEntry.rawBoostSeconds === boostRemainingSeconds ||
+    (jsonTimestamp !== null &&
+      prevEntry.jsonTimestamp !== null &&
+      jsonTimestamp <= prevEntry.jsonTimestamp)
+  ) {
+    return {
+      potionsToCredit: 0,
+      nextEntry: prevEntry,
+    };
+  }
+
+  // Guard 2: Subsequent export from the same active boost session (remaining time ticked down or expiry unchanged)
+  const prevRemainingSecAtImport = Math.max(
+    0,
+    Math.floor((prevEntry.expiryTimestamp - importNow) / 1000)
+  );
+  const prevRemainingPotionsAtImport = Math.ceil(prevRemainingSecAtImport / 3600);
+
+  if (
+    boostRemainingSeconds <= prevRemainingSecAtImport + 300 ||
+    totalPotionsInJson <= prevRemainingPotionsAtImport
+  ) {
+    return {
+      potionsToCredit: 0,
+      nextEntry: {
+        rawBoostSeconds: boostRemainingSeconds,
+        jsonTimestamp,
+        startTimestamp: prevEntry.startTimestamp,
+        expiryTimestamp: newExpiryTimestamp,
+        creditedPotions: prevEntry.creditedPotions,
+      },
+    };
+  }
+
+  // Newly stacked potion increments added to the ongoing active boost session
+  const newlyAddedPotions = Math.max(0, totalPotionsInJson - prevRemainingPotionsAtImport);
+  return {
+    potionsToCredit: newlyAddedPotions,
+    nextEntry: {
+      rawBoostSeconds: boostRemainingSeconds,
+      jsonTimestamp,
+      startTimestamp: prevEntry.startTimestamp,
+      expiryTimestamp: newExpiryTimestamp,
+      creditedPotions: prevEntry.creditedPotions + newlyAddedPotions,
+    },
+  };
 }
 
 type ScheduledAlertsMap = Record<string, number[]>;
@@ -1360,9 +1520,9 @@ function computeTimeParts(
   helperBoostEndTime?: number | null,
   helperSpeedMultiplier = 1,
   potionBoostEndTime?: number | null,
-  potionSpeedMultiplier = 1
+  potionSpeedMultiplier = 1,
+  now = Date.now()
 ) {
-  const now = Date.now();
   const remMs = targetTimestamp - now;
   if (remMs <= 0) {
     return { isFinished: true, d: 0, h: 0, m: 0, s: 0, totalUpgradeSeconds: 0 };
@@ -1415,12 +1575,39 @@ function retriggerClass(el: HTMLElement | null, className: string) {
 }
 
 /**
+ * Centralized Master Tick Pub/Sub Bus:
+ * Driven by a single 1000ms master interval in `App` that automatically pauses when `document.hidden === true`
+ * and immediately re-syncs against `Date.now()` when `document.hidden === false`.
+ */
+type MasterTickSubscriber = (now: number) => void;
+const masterTickSubscribers = new Set<MasterTickSubscriber>();
+
+function subscribeMasterTick(subscriber: MasterTickSubscriber): () => void {
+  masterTickSubscribers.add(subscriber);
+  return () => {
+    masterTickSubscribers.delete(subscriber);
+  };
+}
+
+function dispatchMasterTick(now: number): void {
+  masterTickSubscribers.forEach((subscriber) => {
+    subscriber(now);
+  });
+}
+
+function formatActiveBoostRemainingText(remSeconds: number): string {
+  const hours = Math.floor(remSeconds / 3600);
+  const mins = Math.floor((remSeconds % 3600) / 60);
+  const secs = remSeconds % 60;
+  return hours > 0
+    ? `${hours}h ${String(mins).padStart(2, '0')}m ${String(secs).padStart(2, '0')}s remaining`
+    : `${String(mins).padStart(2, '0')}m ${String(secs).padStart(2, '0')}s remaining`;
+}
+
+/**
  * Isolated 4-Unit HUD Live Countdown Ticker:
  * [ DD d ] : [ HH h ] : [ MM m ] : [ SS s ]
- * Executes real-time accelerated countdown ticking in `setInterval` every second:
- * - If `now < activeBoostEndTime`: decrements remaining upgrade progress by `M` seconds per 1 real second (`remainingUpgradeSeconds -= M`)
- *   and displays the accelerated indicator badge (`⚡ 10x Boost Running` or `⚡ 24x Boost Running`).
- * - If `now >= activeBoostEndTime`: reverts to normal 1x speed (`remainingUpgradeSeconds -= 1`).
+ * Subscribes to the centralized Master Tick Loop (`targetTimestamp - now`) with batched DOM updates.
  */
 const LiveHudTicker: React.FC<{
   targetTimestamp: number;
@@ -1469,9 +1656,6 @@ const LiveHudTicker: React.FC<{
     });
 
     const prevPartsRef = useRef(initialParts);
-    const remUpgradeSecondsRef = useRef<number>(initialParts.totalUpgradeSeconds);
-    const lastTickMsRef = useRef<number>(Date.now());
-    const wasBoostActiveRef = useRef<boolean>(activeRateBadge !== null);
     const wasRunningRef = useRef<boolean>(!initialParts.isFinished);
     const onFinishRef = useRef(onFinish);
     onFinishRef.current = onFinish;
@@ -1486,54 +1670,20 @@ const LiveHudTicker: React.FC<{
     const secValRef = useRef<HTMLSpanElement>(null);
 
     useEffect(() => {
-      const now0 = Date.now();
-      const startParts = computeTimeParts(
-        targetTimestamp,
-        helperBoostEndTime,
-        helperSpeedMultiplier,
-        potionBoostEndTime,
-        potionSpeedMultiplier
-      );
-      prevPartsRef.current = startParts;
-      remUpgradeSecondsRef.current = startParts.totalUpgradeSeconds;
-      lastTickMsRef.current = now0;
-      wasRunningRef.current = !startParts.isFinished;
-      setIsFinished(startParts.isFinished);
-
-      const pActive0 = !!potionBoostEndTime && potionBoostEndTime > now0 && potionSpeedMultiplier > 1;
-      const hActive0 = !!helperBoostEndTime && helperBoostEndTime > now0 && helperSpeedMultiplier > 1;
-      const initialBadge =
-        pActive0 && hActive0
-          ? `⚡ ${potionSpeedMultiplier + (helperSpeedMultiplier - 1)}x Boost Running`
-          : pActive0
-          ? `⚡ ${potionSpeedMultiplier}x Boost Running`
-          : hActive0
-          ? `⚡ ${helperSpeedMultiplier}x Helper Running`
-          : null;
-      wasBoostActiveRef.current = initialBadge !== null;
-      setActiveRateBadge(initialBadge);
-
-      if (startParts.isFinished) {
-        onFinishRef.current?.();
-        return;
-      }
-
-      if (dayValRef.current) dayValRef.current.textContent = String(startParts.d).padStart(2, '0');
-      if (hourValRef.current) hourValRef.current.textContent = String(startParts.h).padStart(2, '0');
-      if (minValRef.current) minValRef.current.textContent = String(startParts.m).padStart(2, '0');
-      if (secValRef.current) secValRef.current.textContent = String(startParts.s).padStart(2, '0');
-
-      const timerId = window.setInterval(() => {
-        const now = Date.now();
-        const elapsedMs = now - lastTickMsRef.current;
-        lastTickMsRef.current = now;
+      const syncFromNow = (now: number, isInitialMount: boolean) => {
+        const next = computeTimeParts(
+          targetTimestamp,
+          helperBoostEndTime,
+          helperSpeedMultiplier,
+          potionBoostEndTime,
+          potionSpeedMultiplier,
+          now
+        );
 
         const isPotionBoostActive =
           !!potionBoostEndTime && now < potionBoostEndTime && potionSpeedMultiplier > 1;
         const isHelperBoostActive =
           !!helperBoostEndTime && now < helperBoostEndTime && helperSpeedMultiplier > 1;
-        const isAnyBoostActive = isPotionBoostActive || isHelperBoostActive;
-
         const currentM =
           isPotionBoostActive && isHelperBoostActive
             ? potionSpeedMultiplier + (helperSpeedMultiplier - 1)
@@ -1553,44 +1703,31 @@ const LiveHudTicker: React.FC<{
             : null;
         setActiveRateBadge((prev) => (prev === nextBadge ? prev : nextBadge));
 
-        let remainingUpgradeSeconds = remUpgradeSecondsRef.current;
-
-        // Exact Real-Time Countdown Tick Logic:
-        // If foreground 1s tick and boost state did not just transition, decrement by M (when boosted) or 1 (when unboosted).
-        // If returning from background tab (elapsedMs >= 2500) or boost state just ended, sync with exact timestamp math.
-        if (elapsedMs < 2500 && wasBoostActiveRef.current === isAnyBoostActive) {
-          if (isAnyBoostActive) {
-            remainingUpgradeSeconds -= currentM;
-          } else {
-            remainingUpgradeSeconds -= 1;
-          }
-        } else {
-          const synced = computeTimeParts(
-            targetTimestamp,
-            helperBoostEndTime,
-            helperSpeedMultiplier,
-            potionBoostEndTime,
-            potionSpeedMultiplier
-          );
-          remainingUpgradeSeconds = synced.totalUpgradeSeconds;
-        }
-
-        wasBoostActiveRef.current = isAnyBoostActive;
-
-        if (now >= targetTimestamp || remainingUpgradeSeconds <= 0) {
-          remUpgradeSecondsRef.current = 0;
-          window.clearInterval(timerId);
-          if (wasRunningRef.current) {
+        if (now >= targetTimestamp || next.isFinished || next.totalUpgradeSeconds <= 0) {
+          if (wasRunningRef.current && !isInitialMount) {
             wasRunningRef.current = false;
             triggerHaptic([30, 50, 30]);
             onFinishRef.current?.();
+          } else if (isInitialMount) {
+            wasRunningRef.current = false;
+            onFinishRef.current?.();
           }
-          setIsFinished(true);
+          setIsFinished((prev) => (prev ? prev : true));
           return;
         }
 
-        remUpgradeSecondsRef.current = remainingUpgradeSeconds;
-        const next = formatTotalSecondsToParts(remainingUpgradeSeconds);
+        wasRunningRef.current = true;
+        setIsFinished((prev) => (prev ? false : prev));
+
+        if (isInitialMount) {
+          if (dayValRef.current) dayValRef.current.textContent = String(next.d).padStart(2, '0');
+          if (hourValRef.current) hourValRef.current.textContent = String(next.h).padStart(2, '0');
+          if (minValRef.current) minValRef.current.textContent = String(next.m).padStart(2, '0');
+          if (secValRef.current) secValRef.current.textContent = String(next.s).padStart(2, '0');
+          prevPartsRef.current = next;
+          return;
+        }
+
         const prev = prevPartsRef.current;
 
         // Seconds: Smooth vertical slide-down flip animation
@@ -1618,9 +1755,12 @@ const LiveHudTicker: React.FC<{
         }
 
         prevPartsRef.current = next;
-      }, 1000);
+      };
 
-      return () => window.clearInterval(timerId);
+      syncFromNow(Date.now(), true);
+      return subscribeMasterTick((now) => {
+        syncFromNow(now, false);
+      });
     }, [
       targetTimestamp,
       helperBoostEndTime,
@@ -1773,46 +1913,52 @@ const ActiveBoostHudBadge: React.FC<{
   variant: 'builders' | 'laboratory' | 'pethouse';
   onExpire: () => void;
 }> = React.memo(({ boostEndTime, variant, onExpire }) => {
-  const [remSeconds, setRemSeconds] = useState<number>(() =>
-    getRemainingBoostSeconds(boostEndTime)
+  const [isActive, setIsActive] = useState<boolean>(() =>
+    getRemainingBoostSeconds(boostEndTime) > 0
   );
+  const textSpanRef = useRef<HTMLSpanElement>(null);
+  const onExpireRef = useRef(onExpire);
+  onExpireRef.current = onExpire;
 
   useEffect(() => {
     const initialRem = getRemainingBoostSeconds(boostEndTime);
-    setRemSeconds(initialRem);
     if (initialRem <= 0) {
+      setIsActive(false);
       if (boostEndTime) {
-        onExpire();
+        onExpireRef.current();
       }
       return;
     }
 
-    const intervalId = window.setInterval(() => {
-      const nextRem = getRemainingBoostSeconds(boostEndTime);
+    setIsActive(true);
+    if (textSpanRef.current) {
+      textSpanRef.current.textContent = `⚡ Active Boost: ${formatActiveBoostRemainingText(
+        initialRem
+      )}`;
+    }
+
+    return subscribeMasterTick((now) => {
+      const nextRem = getRemainingBoostSeconds(boostEndTime, now);
       if (nextRem <= 0) {
-        window.clearInterval(intervalId);
-        setRemSeconds(0);
+        setIsActive(false);
         triggerHaptic([20, 40, 20]);
-        onExpire();
-      } else {
-        setRemSeconds(nextRem);
+        onExpireRef.current();
+      } else if (textSpanRef.current) {
+        textSpanRef.current.textContent = `⚡ Active Boost: ${formatActiveBoostRemainingText(
+          nextRem
+        )}`;
       }
-    }, 1000);
+    });
+  }, [boostEndTime]);
 
-    return () => window.clearInterval(intervalId);
-  }, [boostEndTime, onExpire]);
-
-  if (!boostEndTime || remSeconds <= 0) {
+  if (!boostEndTime || !isActive) {
     return null;
   }
 
-  const hours = Math.floor(remSeconds / 3600);
-  const mins = Math.floor((remSeconds % 3600) / 60);
-  const secs = remSeconds % 60;
-  const formattedTime =
-    hours > 0
-      ? `${hours}h ${String(mins).padStart(2, '0')}m ${String(secs).padStart(2, '0')}s remaining`
-      : `${String(mins).padStart(2, '0')}m ${String(secs).padStart(2, '0')}s remaining`;
+  const initialRem = getRemainingBoostSeconds(boostEndTime);
+  if (initialRem <= 0) {
+    return null;
+  }
 
   const themeClasses =
     variant === 'builders'
@@ -1833,8 +1979,8 @@ const ActiveBoostHudBadge: React.FC<{
       className={`mt-2.5 w-full rounded-xl px-3 py-2 border flex items-center justify-center gap-2 transition-all duration-300 ${themeClasses}`}
     >
       <span className={`w-2 h-2 rounded-full animate-pulse shrink-0 ${dotColor}`} />
-      <span className="text-xs font-extrabold tracking-wide">
-        ⚡ Active Boost: {formattedTime}
+      <span ref={textSpanRef} className="text-xs font-extrabold tracking-wide">
+        ⚡ Active Boost: {formatActiveBoostRemainingText(initialRem)}
       </span>
     </div>
   );
@@ -1861,47 +2007,46 @@ const HelperObsidianCard: React.FC<{
   onOpenAssignModal: () => void;
   onSessionExpire: () => void;
   onCooldownExpire: () => void;
-}> = ({
-  icon,
-  title,
-  subtitle,
-  accentVariant,
-  level,
-  targetName,
-  activeSessionEndTime,
-  cooldownEndTime,
-  onChangeLevel,
-  onOpenAssignModal,
-  onSessionExpire,
-  onCooldownExpire,
-}) => {
-  const [activeRemSec, setActiveRemSec] = useState<number>(() =>
-    getRemainingBoostSeconds(activeSessionEndTime)
-  );
-  const [cooldownRemSec, setCooldownRemSec] = useState<number>(() =>
-    getRemainingBoostSeconds(cooldownEndTime)
-  );
+}> = React.memo(
+  ({
+    icon,
+    title,
+    subtitle,
+    accentVariant,
+    level,
+    targetName,
+    activeSessionEndTime,
+    cooldownEndTime,
+    onChangeLevel,
+    onOpenAssignModal,
+    onSessionExpire,
+    onCooldownExpire,
+  }) => {
+    const [activeRemSec, setActiveRemSec] = useState<number>(() =>
+      getRemainingBoostSeconds(activeSessionEndTime)
+    );
+    const [cooldownRemSec, setCooldownRemSec] = useState<number>(() =>
+      getRemainingBoostSeconds(cooldownEndTime)
+    );
 
-  useEffect(() => {
-    const syncTimers = () => {
-      const now = Date.now();
-      const nextActive = getRemainingBoostSeconds(activeSessionEndTime, now);
-      const nextCool = getRemainingBoostSeconds(cooldownEndTime, now);
-      setActiveRemSec(nextActive);
-      setCooldownRemSec(nextCool);
+    useEffect(() => {
+      const syncTimers = (now: number) => {
+        const nextActive = getRemainingBoostSeconds(activeSessionEndTime, now);
+        const nextCool = getRemainingBoostSeconds(cooldownEndTime, now);
+        setActiveRemSec((prev) => (prev === nextActive ? prev : nextActive));
+        setCooldownRemSec((prev) => (prev === nextCool ? prev : nextCool));
 
-      if (activeSessionEndTime && nextActive <= 0) {
-        onSessionExpire();
-      }
-      if (cooldownEndTime && nextCool <= 0 && nextActive <= 0) {
-        onCooldownExpire();
-      }
-    };
+        if (activeSessionEndTime && nextActive <= 0) {
+          onSessionExpire();
+        }
+        if (cooldownEndTime && nextCool <= 0 && nextActive <= 0) {
+          onCooldownExpire();
+        }
+      };
 
-    syncTimers();
-    const intervalId = window.setInterval(syncTimers, 1000);
-    return () => window.clearInterval(intervalId);
-  }, [activeSessionEndTime, cooldownEndTime, onSessionExpire, onCooldownExpire]);
+      syncTimers(Date.now());
+      return subscribeMasterTick(syncTimers);
+    }, [activeSessionEndTime, cooldownEndTime, onSessionExpire, onCooldownExpire]);
 
   const speedMultiplier = getHelperSpeedMultiplier(level);
   const netSavedHours = speedMultiplier - 1;
@@ -2041,7 +2186,8 @@ const HelperObsidianCard: React.FC<{
       </button>
     </div>
   );
-};
+  }
+);
 
 export default function App() {
   const initialMulti = loadMultiAccountStorage();
@@ -2190,6 +2336,8 @@ export default function App() {
   const [jsonInputText, setJsonInputText] = useState<string>('');
   const [isBackupModalOpen, setIsBackupModalOpen] = useState<boolean>(false);
   const [backupRestoreInput, setBackupRestoreInput] = useState<string>('');
+  const jsonImportTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const backupRestoreTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const backupFileInputRef = useRef<HTMLInputElement | null>(null);
   const [tagMismatchAlert, setTagMismatchAlert] = useState<{
     incomingTag: string;
@@ -2293,31 +2441,110 @@ export default function App() {
     setConfirmDialogType(null);
   }, []);
 
-  // Request Capacitor LocalNotification permissions on first app launch & auto-collapse timers on app reopen
+  const clearJsonImportInputState = useCallback(() => {
+    setJsonInputText('');
+    if (jsonImportTextareaRef.current) {
+      jsonImportTextareaRef.current.value = '';
+    }
+    if (backupFileInputRef.current) {
+      backupFileInputRef.current.value = '';
+    }
+  }, []);
+
+  const applyTextToTextareaAndState = useCallback(
+    (
+      textareaEl: HTMLTextAreaElement | null,
+      text: string,
+      setStateValue: React.Dispatch<React.SetStateAction<string>>
+    ) => {
+      setStateValue(text);
+      if (textareaEl) {
+        const nativeTextareaValueSetter = Object.getOwnPropertyDescriptor(
+          window.HTMLTextAreaElement.prototype,
+          'value'
+        )?.set;
+        if (nativeTextareaValueSetter) {
+          nativeTextareaValueSetter.call(textareaEl, text);
+        } else {
+          textareaEl.value = text;
+        }
+        textareaEl.dispatchEvent(new Event('input', { bubbles: true }));
+        textareaEl.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+    },
+    []
+  );
+
+  const handlePasteJsonClipboard = useCallback(
+    async (
+      textareaEl: HTMLTextAreaElement | null,
+      setStateValue: React.Dispatch<React.SetStateAction<string>>
+    ) => {
+      triggerHaptic(15);
+      try {
+        if (navigator.clipboard && typeof navigator.clipboard.readText === 'function') {
+          const clipText = await navigator.clipboard.readText();
+          if (typeof clipText === 'string' && clipText.length > 0) {
+            applyTextToTextareaAndState(textareaEl, clipText, setStateValue);
+            return;
+          }
+        }
+      } catch {
+        // Clipboard access restricted by WebView or permissions; fall through to focus fallback
+      }
+
+      if (textareaEl) {
+        textareaEl.focus();
+        try {
+          if (typeof document.execCommand === 'function') {
+            const pasted = document.execCommand('paste');
+            if (pasted && textareaEl.value) {
+              setStateValue(textareaEl.value);
+              return;
+            }
+          }
+        } catch {
+          // Ignore execCommand error
+        }
+      }
+    },
+    [applyTextToTextareaAndState]
+  );
+
+  // Track whether pending potion previews are active so the Master Tick Loop only triggers top-level
+  // `nowTick` state updates when necessary (or on month rollover / foreground resume).
+  const hasPendingPotionPreviewRef = useRef<boolean>(false);
+  hasPendingPotionPreviewRef.current =
+    (parseInt(potionsInput, 10) || 0) > 0 || researchPotions > 0 || petPotions > 0;
+  const lastSyncedMonthKeyRef = useRef<string>(activeYearMonthKey);
+  lastSyncedMonthKeyRef.current = activeYearMonthKey;
+
+  // SINGLE CENTRALIZED MASTER INTERVAL (1000ms) + PAGE VISIBILITY API PAUSE/RESUME:
+  // - Drives all countdown cards, active boost pills, and helper cards in one synchronized tick.
+  // - Immediately clears/pauses when `document.hidden === true` (zero background CPU/battery drain).
+  // - Immediately re-syncs against `Date.now()` and restarts when `document.hidden === false`.
   useEffect(() => {
     void requestNotificationPermissions();
     setTimersCollapsedState(true);
 
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        if (editSnapshotRef.current) {
-          discardUnconfirmedTimerEdits();
-        }
-        setTimersCollapsedState(true);
-      }
-    };
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-    };
-  }, [setTimersCollapsedState, discardUnconfirmedTimerEdits]);
+    let masterIntervalId: number | null = null;
 
-  // Automatically transition Helpers and Potion Boosts every second
-  useEffect(() => {
-    const intervalId = window.setInterval(() => {
+    const runMasterTick = (forceStateSync = false) => {
       const now = Date.now();
-      setNowTick(now);
 
+      // 1. Batch-notify all subscribed live HUD tickers, boost pills, and helper cards in one pass
+      dispatchMasterTick(now);
+
+      // 2. Sync top-level `nowTick` only when needed (foreground resume, active potion preview, or month rollover)
+      if (
+        forceStateSync ||
+        hasPendingPotionPreviewRef.current ||
+        getCurrentYearMonthKey(new Date(now)) !== lastSyncedMonthKeyRef.current
+      ) {
+        setNowTick(now);
+      }
+
+      // 3. Transition expired potion boosts & helper sessions only when an expiration actually occurs
       setBuilderBoostEndTime((prev) => (prev && prev <= now ? null : prev));
       setLabBoostEndTime((prev) => (prev && prev <= now ? null : prev));
       setPetBoostEndTime((prev) => (prev && prev <= now ? null : prev));
@@ -2328,7 +2555,6 @@ export default function App() {
         let nextCooldown = prev.cooldownEndTime;
 
         if (nextActive && nextActive <= now) {
-          // 1-hour active session finished -> speed drops to 1x, green dot turns OFF, enters daily cooldown
           if (!nextCooldown || nextCooldown <= now) {
             nextCooldown = nextActive + 23 * 3600 * 1000;
           }
@@ -2364,10 +2590,52 @@ export default function App() {
           ? { ...prev, activeSessionEndTime: nextActive, cooldownEndTime: nextCooldown }
           : prev;
       });
-    }, 1000);
+    };
 
-    return () => window.clearInterval(intervalId);
-  }, []);
+    const stopMasterInterval = () => {
+      if (masterIntervalId !== null) {
+        window.clearInterval(masterIntervalId);
+        masterIntervalId = null;
+      }
+    };
+
+    const startMasterInterval = () => {
+      stopMasterInterval();
+      if (!document.hidden) {
+        masterIntervalId = window.setInterval(() => {
+          if (document.hidden) {
+            stopMasterInterval();
+            return;
+          }
+          runMasterTick(false);
+        }, 1000);
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        // App minimized, switched away, or screen off: pause Master JS Interval immediately
+        stopMasterInterval();
+      } else {
+        // App reopened or brought back to foreground: discard unconfirmed edits, collapse timers,
+        // immediately re-sync all live values against Date.now(), and restart Master Interval
+        if (editSnapshotRef.current) {
+          discardUnconfirmedTimerEdits();
+        }
+        setTimersCollapsedState(true);
+        runMasterTick(true);
+        startMasterInterval();
+      }
+    };
+
+    startMasterInterval();
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      stopMasterInterval();
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [setTimersCollapsedState, discardUnconfirmedTimerEdits]);
 
   const applySavedStateToActiveView = (d: SavedState) => {
     const now = Date.now();
@@ -3014,6 +3282,13 @@ export default function App() {
 
       // Research Potion: ONLY increment Laboratory stats (labSecondsSaved, researchPotionsCount)
       recordConfirmedPotionUsage('lab', 23 * 3600 * potionsUsed, potionsUsed);
+      updateManualBoostTrackSlot(
+        activePlayerTag,
+        'lab',
+        totalBoostSec,
+        nextBoostEnd,
+        potionsUsed
+      );
 
       setLabTimer(syncedMain);
       setGoblinLabTimer(syncedGoblin);
@@ -3045,6 +3320,7 @@ export default function App() {
 
     if (curBoostRemSec > 0) {
       // Reset active boost back to 1x speed from current remaining upgrade seconds
+      updateManualBoostTrackSlot(activePlayerTag, 'lab', 0, null, 0);
       setLabTimer(syncedMain);
       setGoblinLabTimer(syncedGoblin);
       setLabBoostEndTime(null);
@@ -3243,6 +3519,13 @@ export default function App() {
 
       // Pet Potion: ONLY increment Pet House stats (petSecondsSaved, petPotionsCount)
       recordConfirmedPotionUsage('pethouse', 23 * 3600 * potionsUsed, potionsUsed);
+      updateManualBoostTrackSlot(
+        activePlayerTag,
+        'pet',
+        totalBoostSec,
+        nextBoostEnd,
+        potionsUsed
+      );
 
       setPetTimer(syncedPet);
       setPetBoostEndTime(nextBoostEnd);
@@ -3270,6 +3553,7 @@ export default function App() {
     }
 
     if (curBoostRemSec > 0) {
+      updateManualBoostTrackSlot(activePlayerTag, 'pet', 0, null, 0);
       setPetTimer(syncedPet);
       setPetBoostEndTime(null);
       computePetSchedule(
@@ -3602,6 +3886,13 @@ export default function App() {
         activeBuildersForStats * 9 * 3600 * pendingPotions,
         pendingPotions
       );
+      updateManualBoostTrackSlot(
+        activePlayerTag,
+        'builder',
+        totalBoostSec,
+        nextBoostEnd,
+        pendingPotions
+      );
 
       setBuilders(syncedBuilders);
       setBuilderBoostEndTime(nextBoostEnd);
@@ -3633,6 +3924,7 @@ export default function App() {
     }
 
     if (curBoostRemSec > 0) {
+      updateManualBoostTrackSlot(activePlayerTag, 'builder', 0, null, 0);
       setBuilders(syncedBuilders);
       setBuilderBoostEndTime(null);
       setTimersCollapsedState(true);
@@ -4131,6 +4423,7 @@ export default function App() {
         currentBoundTag.toUpperCase() !== extractedTag.toUpperCase()
       ) {
         triggerHaptic([30, 50, 30]);
+        clearJsonImportInputState();
         setTagMismatchAlert({
           incomingTag: extractedTag,
           currentTag: currentBoundTag,
@@ -4139,10 +4432,41 @@ export default function App() {
       }
     }
 
-    // Extract active potion boost seconds directly from the `boosts` object
-    const builderBoostSeconds = Math.max(0, Math.floor(Number(data.boosts?.builder_boost) || 0));
-    const labBoostSeconds = Math.max(0, Math.floor(Number(data.boosts?.lab_boost) || 0));
-    const petBoostSeconds = Math.max(0, Math.floor(Number(data.boosts?.pet_boost) || 0));
+    // Extract active potion boost seconds directly from the `boosts` object (or root boost keys)
+    const builderBoostSeconds = Math.max(
+      0,
+      Math.floor(
+        Number(
+          data.boosts?.builder_boost ??
+            data.boosts?.builders_boost ??
+            (data as Record<string, unknown>).builder_boost
+        ) || 0
+      )
+    );
+    const labBoostSeconds = Math.max(
+      0,
+      Math.floor(
+        Number(
+          data.boosts?.lab_boost ??
+            data.boosts?.research_boost ??
+            (data as Record<string, unknown>).lab_boost
+        ) || 0
+      )
+    );
+    const petBoostSeconds = Math.max(
+      0,
+      Math.floor(
+        Number(
+          data.boosts?.pet_boost ??
+            data.boosts?.pethouse_boost ??
+            (data as Record<string, unknown>).pet_boost
+        ) || 0
+      )
+    );
+    const jsonExportTimestamp =
+      typeof data.timestamp === 'number' && data.timestamp > 0
+        ? Math.floor(data.timestamp)
+        : null;
 
     // Extract Helpers / Apprentices (93000000: Builder's Apprentice, 93000001: Lab Apprentice)
     const rawHelpers: RawCoCItem[] = Array.isArray(data.helpers) ? data.helpers : [];
@@ -4480,6 +4804,92 @@ export default function App() {
         }
         return updated;
       });
+    }
+
+    // Automatically reverse-calculate & credit active potion boosts from imported JSON into monthly stats
+    // with duplicate session / re-import protection (`lastImportedBoostState_{playerTag}`)
+    const existingBoundTag = !isAddingNewAccount
+      ? accounts.find((a) => a.id === activeAccountId)?.tag?.trim()
+      : undefined;
+    const resolvedImportPlayerTag = (extractedTag || existingBoundTag || '').trim().toUpperCase();
+
+    if (resolvedImportPlayerTag) {
+      const currentMonthKey = getCurrentYearMonthKey(new Date(importNow));
+      const prevBoostTrack = loadLastImportedBoostState(resolvedImportPlayerTag);
+      const updatedMonthlyStats = loadMonthlyStatsForTag(resolvedImportPlayerTag, currentMonthKey);
+
+      const activeBuildersForBoostStats =
+        totalLoadedBuilders > 0 ? totalLoadedBuilders : nextBuilderSliderCount;
+
+      // 1. Builder Potions: potionCount = Math.ceil(builderBoostRemainingSeconds / 3600),
+      //    secondsSaved = potionCount * activeBuilders * 9 * 3600
+      const builderTrackRes = computeNewlyCreditedBoostPotions(
+        builderBoostSeconds,
+        prevBoostTrack.builder,
+        importNow,
+        jsonExportTimestamp
+      );
+      if (builderTrackRes.potionsToCredit > 0) {
+        const builderSecondsSavedToAdd =
+          builderTrackRes.potionsToCredit * activeBuildersForBoostStats * 9 * 3600;
+        updatedMonthlyStats.builderPotionsCount += builderTrackRes.potionsToCredit;
+        updatedMonthlyStats.builderSecondsSaved += builderSecondsSavedToAdd;
+        saveMonthlySectionStatsForTag(
+          resolvedImportPlayerTag,
+          'builders',
+          updatedMonthlyStats,
+          currentMonthKey
+        );
+      }
+
+      // 2. Research Potions: potionCount = Math.ceil(researchBoostRemainingSeconds / 3600),
+      //    secondsSaved = potionCount * 23 * 3600
+      const labTrackRes = computeNewlyCreditedBoostPotions(
+        labBoostSeconds,
+        prevBoostTrack.lab,
+        importNow,
+        jsonExportTimestamp
+      );
+      if (labTrackRes.potionsToCredit > 0) {
+        const labSecondsSavedToAdd = labTrackRes.potionsToCredit * 23 * 3600;
+        updatedMonthlyStats.researchPotionsCount += labTrackRes.potionsToCredit;
+        updatedMonthlyStats.labSecondsSaved += labSecondsSavedToAdd;
+        saveMonthlySectionStatsForTag(
+          resolvedImportPlayerTag,
+          'lab',
+          updatedMonthlyStats,
+          currentMonthKey
+        );
+      }
+
+      // 3. Pet Potions: potionCount = Math.ceil(petBoostRemainingSeconds / 3600),
+      //    secondsSaved = potionCount * 23 * 3600
+      const petTrackRes = computeNewlyCreditedBoostPotions(
+        petBoostSeconds,
+        prevBoostTrack.pet,
+        importNow,
+        jsonExportTimestamp
+      );
+      if (petTrackRes.potionsToCredit > 0) {
+        const petSecondsSavedToAdd = petTrackRes.potionsToCredit * 23 * 3600;
+        updatedMonthlyStats.petPotionsCount += petTrackRes.potionsToCredit;
+        updatedMonthlyStats.petSecondsSaved += petSecondsSavedToAdd;
+        saveMonthlySectionStatsForTag(
+          resolvedImportPlayerTag,
+          'pethouse',
+          updatedMonthlyStats,
+          currentMonthKey
+        );
+      }
+
+      saveLastImportedBoostState(resolvedImportPlayerTag, {
+        ...(builderTrackRes.nextEntry ? { builder: builderTrackRes.nextEntry } : {}),
+        ...(labTrackRes.nextEntry ? { lab: labTrackRes.nextEntry } : {}),
+        ...(petTrackRes.nextEntry ? { pet: petTrackRes.nextEntry } : {}),
+      });
+
+      // Immediately refresh UI monthly stats state for the active/imported account
+      setMonthlyStats(updatedMonthlyStats);
     }
 
     setCurrentMode('multi');
@@ -6700,6 +7110,7 @@ export default function App() {
 
             <div className="relative">
               <textarea
+                ref={jsonImportTextareaRef}
                 value={jsonInputText}
                 onChange={(e) => setJsonInputText(e.target.value)}
                 placeholder="Paste your raw Clash of Clans village export JSON here..."
@@ -6708,15 +7119,9 @@ export default function App() {
               />
               <button
                 type="button"
-                onClick={async () => {
-                  triggerHaptic(15);
-                  try {
-                    const clip = await navigator.clipboard.readText();
-                    if (clip) setJsonInputText(clip);
-                  } catch {
-                    // Clipboard permission denied or unsupported
-                  }
-                }}
+                onClick={() =>
+                  void handlePasteJsonClipboard(jsonImportTextareaRef.current, setJsonInputText)
+                }
                 className="tactile absolute bottom-3 right-3 text-[11px] font-bold px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-[#fbbf24] border border-white/15 cursor-pointer"
               >
                 📋 Paste
@@ -6855,6 +7260,7 @@ export default function App() {
 
               <div className="relative">
                 <textarea
+                  ref={backupRestoreTextareaRef}
                   value={backupRestoreInput}
                   onChange={(e) => setBackupRestoreInput(e.target.value)}
                   placeholder="Paste your Clash Planner backup JSON here to restore all villages..."
@@ -6863,15 +7269,12 @@ export default function App() {
                 />
                 <button
                   type="button"
-                  onClick={async () => {
-                    triggerHaptic(15);
-                    try {
-                      const clip = await navigator.clipboard.readText();
-                      if (clip) setBackupRestoreInput(clip);
-                    } catch {
-                      // Clipboard permission denied
-                    }
-                  }}
+                  onClick={() =>
+                    void handlePasteJsonClipboard(
+                      backupRestoreTextareaRef.current,
+                      setBackupRestoreInput
+                    )
+                  }
                   className="tactile absolute bottom-2.5 right-2.5 text-[11px] font-bold px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-[#fbbf24] border border-white/15 cursor-pointer"
                 >
                   📋 Paste
@@ -6894,7 +7297,10 @@ export default function App() {
       {tagMismatchAlert && (
         <div
           className="fixed inset-0 z-[60] flex items-center justify-center bg-black/85 backdrop-blur-md p-4"
-          onClick={() => setTagMismatchAlert(null)}
+          onClick={() => {
+            clearJsonImportInputState();
+            setTagMismatchAlert(null);
+          }}
         >
           <div
             role="alertdialog"
@@ -6925,6 +7331,7 @@ export default function App() {
               type="button"
               onClick={() => {
                 triggerHaptic(15);
+                clearJsonImportInputState();
                 setTagMismatchAlert(null);
               }}
               className="tactile w-full py-3 rounded-xl font-extrabold text-xs sm:text-sm text-white bg-rose-600 hover:bg-rose-500 border border-rose-400/50 shadow-lg cursor-pointer"

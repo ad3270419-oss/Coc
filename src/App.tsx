@@ -915,37 +915,6 @@ async function scheduleBoostExpiryNotificationsForVillage(
   }
 }
 
-async function scheduleHelperCooldownNotificationsForVillage(
-  villageId: string,
-  builderCooldownEndTime: number | null | undefined,
-  labCooldownEndTime: number | null | undefined
-): Promise<void> {
-  const now = Date.now();
-  if (builderCooldownEndTime && builderCooldownEndTime > now + 1000) {
-    await scheduleExactSlotNotification({
-      villageId,
-      slotKey: 'helper_builder',
-      title: "Builder's Apprentice is Ready! 🔨",
-      body: "Your Builder's Apprentice has finished resting. Open Clash of Clans to assign him!",
-      targetTimestamp: builderCooldownEndTime,
-    });
-  } else {
-    await cancelSlotNotification(villageId, 'helper_builder');
-  }
-
-  if (labCooldownEndTime && labCooldownEndTime > now + 1000) {
-    await scheduleExactSlotNotification({
-      villageId,
-      slotKey: 'helper_lab',
-      title: 'Lab Apprentice is Ready! 🧪',
-      body: 'Your Lab Apprentice is off cooldown. Boost your laboratory research now!',
-      targetTimestamp: labCooldownEndTime,
-    });
-  } else {
-    await cancelSlotNotification(villageId, 'helper_lab');
-  }
-}
-
 async function cancelAllNotificationsForVillage(villageId: string): Promise<void> {
   const map = loadScheduledAlertsMap();
   const storedIds = Array.isArray(map[villageId]) ? map[villageId] : [];
@@ -980,6 +949,190 @@ async function cancelAllNotificationsForVillage(villageId: string): Promise<void
       // Ignore errors in non-native environments
     }
   }
+}
+
+async function scheduleAllVillageNotificationsSinglePass(params: {
+  villageId: string;
+  villageName: string;
+  builderResults: LockedResultItem[];
+  labMainTimer: BuilderTime;
+  labMainTargetTs: number | null;
+  labGoblinTimer: BuilderTime;
+  labGoblinTargetTs: number | null;
+  petTimerVal: BuilderTime;
+  petTargetTs: number | null;
+  builderBoostEndTime: number | null;
+  labBoostEndTime: number | null;
+  petBoostEndTime: number | null;
+  builderHelperCooldownEndTime?: number | null;
+  labHelperCooldownEndTime?: number | null;
+}): Promise<void> {
+  const {
+    villageId,
+    villageName,
+    builderResults,
+    labMainTimer,
+    labMainTargetTs,
+    labGoblinTimer,
+    labGoblinTargetTs,
+    petTimerVal,
+    petTargetTs,
+    builderBoostEndTime,
+    labBoostEndTime,
+    petBoostEndTime,
+    builderHelperCooldownEndTime,
+    labHelperCooldownEndTime,
+  } = params;
+
+  // 1. Cancel pending alarms once when a new JSON file is imported
+  await cancelAllNotificationsForVillage(villageId);
+  await ensureDefaultNotificationChannel();
+
+  const now = Date.now();
+  const notificationsToSchedule: Array<{
+    id: number;
+    title: string;
+    body: string;
+    schedule: { at: Date; allowWhileIdle: boolean };
+    channelId: string;
+    sound: string;
+  }> = [];
+
+  const addExactAlarm = (slotKey: string, title: string, body: string, finishEpochMs: number | null | undefined) => {
+    const epochMs = typeof finishEpochMs === 'number' ? Math.trunc(finishEpochMs) : 0;
+    if (!epochMs || epochMs <= now + 1000) return;
+    const uniqueNumericId = Math.abs(Math.trunc(getSlotNotificationId(villageId, slotKey))) || 1001;
+    trackVillageNotificationId(villageId, uniqueNumericId);
+    notificationsToSchedule.push({
+      id: uniqueNumericId,
+      title,
+      body,
+      schedule: {
+        at: new Date(epochMs),
+        allowWhileIdle: true,
+      },
+      channelId: 'default',
+      sound: 'default',
+    });
+  };
+
+  for (const item of builderResults) {
+    const buildingName = item.upgradeTitle || `Builder ${item.builderIndex + 1} Upgrade`;
+    const currentLvl = typeof item.upgradeLevel === 'number' ? item.upgradeLevel : 0;
+    const targetLvl = currentLvl + 1;
+    addExactAlarm(
+      `builder_${item.builderIndex}`,
+      `🔨 Builder Alert • ${villageName}`,
+      `${villageName}: ${buildingName} (LVL ${targetLvl}) upgrade completed! Builder is now free.`,
+      item.targetTimestamp
+    );
+  }
+
+  if (labMainTargetTs && getTimerTotalSeconds(labMainTimer) > 0) {
+    const troopSpellName = resolveUpgradeName(
+      labMainTimer.rawId,
+      labMainTimer.upgradeTitle || 'Troop / Spell Upgrade'
+    );
+    const targetLvl =
+      typeof labMainTimer.upgradeLevel === 'number' ? labMainTimer.upgradeLevel + 1 : 1;
+    addExactAlarm(
+      'lab_main',
+      `⚗️ Laboratory Alert • ${villageName}`,
+      `${villageName}: ${troopSpellName} (LVL ${targetLvl}) research finished!`,
+      labMainTargetTs
+    );
+  }
+
+  if (labGoblinTargetTs && getTimerTotalSeconds(labGoblinTimer) > 0) {
+    const goblinTroopSpellName = resolveUpgradeName(
+      labGoblinTimer.rawId,
+      labGoblinTimer.upgradeTitle || 'Goblin Researcher'
+    );
+    const goblinTargetLvl =
+      typeof goblinTimerLvlSafe(labGoblinTimer) === 'number'
+        ? (goblinTimerLvlSafe(labGoblinTimer) as number) + 1
+        : 1;
+    addExactAlarm(
+      'lab_goblin',
+      `⚗️ Laboratory Alert • ${villageName}`,
+      `${villageName}: ${goblinTroopSpellName} (LVL ${goblinTargetLvl}) research finished!`,
+      labGoblinTargetTs
+    );
+  }
+
+  if (petTargetTs && getTimerTotalSeconds(petTimerVal) > 0) {
+    const petName = resolveUpgradeName(
+      petTimerVal.rawId,
+      petTimerVal.upgradeTitle || 'Active Pet Upgrade'
+    );
+    const targetPetLvl =
+      typeof petTimerVal.upgradeLevel === 'number' ? petTimerVal.upgradeLevel + 1 : 1;
+    addExactAlarm(
+      'pet_main',
+      `🐾 Pet House Alert • ${villageName}`,
+      `${villageName}: ${petName} (LVL ${targetPetLvl}) upgrade is complete! Pet is ready for battle.`,
+      petTargetTs
+    );
+  }
+
+  if (builderBoostEndTime && builderBoostEndTime > now + 1000) {
+    addExactAlarm(
+      'boost_builder',
+      `⚡ Builder Boost Expired • ${villageName}`,
+      `${villageName}: Builder Potion boost has ended! Upgrades are back to normal speed.`,
+      builderBoostEndTime
+    );
+  }
+
+  if (labBoostEndTime && labBoostEndTime > now + 1000) {
+    addExactAlarm(
+      'boost_lab',
+      `⚡ Lab Boost Expired • ${villageName}`,
+      `${villageName}: Research Potion boost has ended!`,
+      labBoostEndTime
+    );
+  }
+
+  if (petBoostEndTime && petBoostEndTime > now + 1000) {
+    addExactAlarm(
+      'boost_pet',
+      `⚡ Pet Boost Expired • ${villageName}`,
+      `${villageName}: Pet Potion boost has ended!`,
+      petBoostEndTime
+    );
+  }
+
+  if (builderHelperCooldownEndTime && builderHelperCooldownEndTime > now + 1000) {
+    addExactAlarm(
+      'helper_builder',
+      `👷 Builder Helper Available • ${villageName}`,
+      `${villageName}: Builder's Apprentice cooldown has ended and is now available!`,
+      builderHelperCooldownEndTime
+    );
+  }
+
+  if (labHelperCooldownEndTime && labHelperCooldownEndTime > now + 1000) {
+    addExactAlarm(
+      'helper_lab',
+      `🔬 Lab Helper Available • ${villageName}`,
+      `${villageName}: Lab Apprentice cooldown has ended and is now available!`,
+      labHelperCooldownEndTime
+    );
+  }
+
+  if (notificationsToSchedule.length > 0) {
+    try {
+      await LocalNotifications.schedule({
+        notifications: notificationsToSchedule,
+      });
+    } catch {
+      // Ignore errors in non-native environments
+    }
+  }
+}
+
+function goblinTimerLvlSafe(t: BuilderTime): number | undefined {
+  return typeof t.upgradeLevel === 'number' ? t.upgradeLevel : undefined;
 }
 
 function createEmptyTimer(): BuilderTime {
@@ -1153,13 +1306,6 @@ function normalizeSavedState(
       })
     : [];
 
-  const rawBuilderSessionEnd =
-    parsed.builderApprentice?.activeSessionEndTime ??
-    parsed.builderApprentice?.activeBoostEndTime;
-  const rawLabSessionEnd =
-    parsed.labApprentice?.activeSessionEndTime ??
-    parsed.labApprentice?.activeBoostEndTime;
-
   return {
     mode:
       parsed.mode === 'multi'
@@ -1216,21 +1362,9 @@ function normalizeSavedState(
         parsed.builderApprentice.level <= 8
           ? Math.floor(parsed.builderApprentice.level)
           : 8,
-      assignedSlot:
-        typeof parsed.builderApprentice?.assignedSlot === 'number' &&
-        parsed.builderApprentice.assignedSlot >= 0 &&
-        parsed.builderApprentice.assignedSlot <= 6
-          ? parsed.builderApprentice.assignedSlot
-          : null,
-      activeSessionEndTime:
-        typeof rawBuilderSessionEnd === 'number' && rawBuilderSessionEnd > 0
-          ? rawBuilderSessionEnd
-          : null,
-      cooldownEndTime:
-        typeof parsed.builderApprentice?.cooldownEndTime === 'number' &&
-        parsed.builderApprentice.cooldownEndTime > 0
-          ? parsed.builderApprentice.cooldownEndTime
-          : null,
+      assignedSlot: null,
+      activeSessionEndTime: null,
+      cooldownEndTime: null,
     },
     labApprentice: {
       id: 93000001,
@@ -1240,20 +1374,9 @@ function normalizeSavedState(
         parsed.labApprentice.level <= 8
           ? Math.floor(parsed.labApprentice.level)
           : 8,
-      assignedSlot:
-        parsed.labApprentice?.assignedSlot === 'main' ||
-        parsed.labApprentice?.assignedSlot === 'goblin'
-          ? parsed.labApprentice.assignedSlot
-          : null,
-      activeSessionEndTime:
-        typeof rawLabSessionEnd === 'number' && rawLabSessionEnd > 0
-          ? rawLabSessionEnd
-          : null,
-      cooldownEndTime:
-        typeof parsed.labApprentice?.cooldownEndTime === 'number' &&
-        parsed.labApprentice.cooldownEndTime > 0
-          ? parsed.labApprentice.cooldownEndTime
-          : null,
+      assignedSlot: null,
+      activeSessionEndTime: null,
+      cooldownEndTime: null,
     },
   };
 }
@@ -1574,8 +1697,8 @@ function formatTotalSecondsToParts(totalSecondsInput: number) {
  */
 function computeTimeParts(
   targetTimestamp: number,
-  helperBoostEndTime?: number | null,
-  helperSpeedMultiplier = 1,
+  _helperBoostEndTime?: number | null,
+  _helperSpeedMultiplier = 1,
   potionBoostEndTime?: number | null,
   potionSpeedMultiplier = 1,
   now = Date.now()
@@ -1589,37 +1712,16 @@ function computeTimeParts(
     potionBoostEndTime && potionBoostEndTime > now && potionSpeedMultiplier > 1
       ? (potionBoostEndTime - now) / 1000
       : 0;
-  const hRemSec =
-    helperBoostEndTime && helperBoostEndTime > now && helperSpeedMultiplier > 1
-      ? (helperBoostEndTime - now) / 1000
-      : 0;
 
-  if (pRemSec <= 0 && hRemSec <= 0) {
+  if (pRemSec <= 0) {
     return formatTotalSecondsToParts(remMs / 1000);
   }
 
   const totalRealRemSec = remMs / 1000;
-  const segments = getBoostSegmentsFromDurations(
-    pRemSec,
-    potionSpeedMultiplier,
-    hRemSec,
-    helperSpeedMultiplier
-  );
-
-  let totalUpgradeSeconds = 0;
-  let coveredSec = 0;
-
-  for (const seg of segments) {
-    if (totalRealRemSec <= seg.startSec) break;
-    const segEnd = Math.min(totalRealRemSec, seg.endSec);
-    const activeSec = Math.max(0, segEnd - seg.startSec);
-    totalUpgradeSeconds += activeSec * seg.rate;
-    coveredSec = Math.max(coveredSec, segEnd);
-  }
-
-  if (totalRealRemSec > coveredSec) {
-    totalUpgradeSeconds += totalRealRemSec - coveredSec;
-  }
+  const boostedRealSec = Math.min(totalRealRemSec, pRemSec);
+  const unboostedRealSec = Math.max(0, totalRealRemSec - boostedRealSec);
+  const totalUpgradeSeconds =
+    boostedRealSec * potionSpeedMultiplier + unboostedRealSec;
 
   return formatTotalSecondsToParts(totalUpgradeSeconds);
 }
@@ -1679,8 +1781,6 @@ const LiveHudTicker: React.FC<{
 }> = React.memo(
   ({
     targetTimestamp,
-    helperBoostEndTime = null,
-    helperSpeedMultiplier = 1,
     potionBoostEndTime = null,
     potionSpeedMultiplier = 1,
     label = 'Live Countdown',
@@ -1690,8 +1790,8 @@ const LiveHudTicker: React.FC<{
   }) => {
     const initialParts = computeTimeParts(
       targetTimestamp,
-      helperBoostEndTime,
-      helperSpeedMultiplier,
+      null,
+      1,
       potionBoostEndTime,
       potionSpeedMultiplier
     );
@@ -1699,15 +1799,8 @@ const LiveHudTicker: React.FC<{
     const [activeRateBadge, setActiveRateBadge] = useState<string | null>(() => {
       const now = Date.now();
       const pActive = !!potionBoostEndTime && potionBoostEndTime > now && potionSpeedMultiplier > 1;
-      const hActive = !!helperBoostEndTime && helperBoostEndTime > now && helperSpeedMultiplier > 1;
-      if (pActive && hActive) {
-        return `⚡ ${potionSpeedMultiplier + (helperSpeedMultiplier - 1)}x Boost Running`;
-      }
       if (pActive) {
         return `⚡ ${potionSpeedMultiplier}x Boost Running`;
-      }
-      if (hActive) {
-        return `⚡ ${helperSpeedMultiplier}x Helper Running`;
       }
       return null;
     });
@@ -1730,8 +1823,8 @@ const LiveHudTicker: React.FC<{
       const syncFromNow = (now: number, isInitialMount: boolean) => {
         const next = computeTimeParts(
           targetTimestamp,
-          helperBoostEndTime,
-          helperSpeedMultiplier,
+          null,
+          1,
           potionBoostEndTime,
           potionSpeedMultiplier,
           now
@@ -1739,25 +1832,10 @@ const LiveHudTicker: React.FC<{
 
         const isPotionBoostActive =
           !!potionBoostEndTime && now < potionBoostEndTime && potionSpeedMultiplier > 1;
-        const isHelperBoostActive =
-          !!helperBoostEndTime && now < helperBoostEndTime && helperSpeedMultiplier > 1;
-        const currentM =
-          isPotionBoostActive && isHelperBoostActive
-            ? potionSpeedMultiplier + (helperSpeedMultiplier - 1)
-            : isPotionBoostActive
-            ? potionSpeedMultiplier
-            : isHelperBoostActive
-            ? helperSpeedMultiplier
-            : 1;
 
-        const nextBadge =
-          isPotionBoostActive && isHelperBoostActive
-            ? `⚡ ${currentM}x Boost Running`
-            : isPotionBoostActive
-            ? `⚡ ${potionSpeedMultiplier}x Boost Running`
-            : isHelperBoostActive
-            ? `⚡ ${helperSpeedMultiplier}x Helper Running`
-            : null;
+        const nextBadge = isPotionBoostActive
+          ? `⚡ ${potionSpeedMultiplier}x Boost Running`
+          : null;
         setActiveRateBadge((prev) => (prev === nextBadge ? prev : nextBadge));
 
         if (now >= targetTimestamp || next.isFinished || next.totalUpgradeSeconds <= 0) {
@@ -1820,8 +1898,6 @@ const LiveHudTicker: React.FC<{
       });
     }, [
       targetTimestamp,
-      helperBoostEndTime,
-      helperSpeedMultiplier,
       potionBoostEndTime,
       potionSpeedMultiplier,
     ]);
@@ -2601,72 +2677,10 @@ export default function App() {
         setNowTick(now);
       }
 
-      // 3. Transition expired potion boosts & helper sessions only when an expiration actually occurs
+      // 3. Transition expired potion boosts only when an expiration actually occurs
       setBuilderBoostEndTime((prev) => (prev && prev <= now ? null : prev));
       setLabBoostEndTime((prev) => (prev && prev <= now ? null : prev));
       setPetBoostEndTime((prev) => (prev && prev <= now ? null : prev));
-
-      setBuilderApprentice((prev) => {
-        let changed = false;
-        let nextAssigned = prev.assignedSlot;
-        let nextActive = prev.activeSessionEndTime;
-        let nextCooldown = prev.cooldownEndTime;
-
-        if (nextActive && nextActive <= now) {
-          if (!nextCooldown || nextCooldown <= now) {
-            nextCooldown = nextActive + 23 * 3600 * 1000;
-          }
-          // 1-hour session finished: disable active boost and clear assumed target
-          nextActive = null;
-          nextAssigned = null;
-          changed = true;
-        }
-        if (nextCooldown && nextCooldown <= now && !nextActive) {
-          // Cooldown finished: transition to "Ready to Assign" with no assumed target
-          nextCooldown = null;
-          nextAssigned = null;
-          changed = true;
-        }
-        return changed
-          ? {
-              ...prev,
-              assignedSlot: nextAssigned,
-              activeSessionEndTime: nextActive,
-              cooldownEndTime: nextCooldown,
-            }
-          : prev;
-      });
-
-      setLabApprentice((prev) => {
-        let changed = false;
-        let nextAssigned = prev.assignedSlot;
-        let nextActive = prev.activeSessionEndTime;
-        let nextCooldown = prev.cooldownEndTime;
-
-        if (nextActive && nextActive <= now) {
-          if (!nextCooldown || nextCooldown <= now) {
-            nextCooldown = nextActive + 23 * 3600 * 1000;
-          }
-          // 1-hour session finished: disable active boost and clear assumed target
-          nextActive = null;
-          nextAssigned = null;
-          changed = true;
-        }
-        if (nextCooldown && nextCooldown <= now && !nextActive) {
-          // Cooldown finished: transition to "Ready to Assign" with no assumed target
-          nextCooldown = null;
-          nextAssigned = null;
-          changed = true;
-        }
-        return changed
-          ? {
-              ...prev,
-              assignedSlot: nextAssigned,
-              activeSessionEndTime: nextActive,
-              cooldownEndTime: nextCooldown,
-            }
-          : prev;
-      });
     };
 
     const stopMasterInterval = () => {
@@ -3160,14 +3174,10 @@ export default function App() {
     const now = Date.now();
     const lockedItem = lockedResults.find((r) => r.builderIndex === slotIdx);
     if (lockedItem && lockedItem.targetTimestamp > now) {
-      const isHelperActive =
-        builderApprentice.assignedSlot === slotIdx &&
-        !!builderApprentice.activeSessionEndTime &&
-        builderApprentice.activeSessionEndTime > now;
       const parts = computeTimeParts(
         lockedItem.targetTimestamp,
-        isHelperActive ? builderApprentice.activeSessionEndTime : null,
-        isHelperActive ? getHelperSpeedMultiplier(builderApprentice.level) : 1,
+        null,
+        1,
         overrideBuilderBoostEndTime,
         10
       );
@@ -3183,14 +3193,10 @@ export default function App() {
     const now = Date.now();
     const targetTs = slot === 'main' ? targetLabTimestamp : targetGoblinLabTimestamp;
     if (targetTs && targetTs > now) {
-      const isHelperActive =
-        labApprentice.assignedSlot === slot &&
-        !!labApprentice.activeSessionEndTime &&
-        labApprentice.activeSessionEndTime > now;
       const parts = computeTimeParts(
         targetTs,
-        isHelperActive ? labApprentice.activeSessionEndTime : null,
-        isHelperActive ? getHelperSpeedMultiplier(labApprentice.level) : 1,
+        null,
+        1,
         overrideLabBoostEndTime,
         24
       );
@@ -3239,7 +3245,7 @@ export default function App() {
     goblinTimerVal: BuilderTime,
     potionCount: number,
     activeLabBoostSecs = getRemainingBoostSeconds(labBoostEndTime),
-    labHelper: LabApprenticeState = labApprentice,
+    _labHelper: LabApprenticeState = labApprentice,
     overrideMainRemSec?: number,
     overrideGoblinRemSec?: number
   ) => {
@@ -3252,21 +3258,13 @@ export default function App() {
       typeof overrideGoblinRemSec === 'number'
         ? overrideGoblinRemSec
         : getTimerTotalSeconds(goblinTimerVal);
-    const helperRemSessionSecs = getRemainingBoostSeconds(labHelper.activeSessionEndTime, now);
 
     let nextMainTs: number | null = null;
     let nextMainDate = '';
     let mainSavedSec = 0;
 
     if (mainRemSec > 0) {
-      const realElapsedSec = calcHelperSessionRealTimeSeconds({
-        remainingUpgradeSeconds: mainRemSec,
-        helperLevel: labHelper.level,
-        activeSessionSeconds: labHelper.assignedSlot === 'main' ? helperRemSessionSecs : 0,
-        potionCount,
-        activePotionBoostSeconds: activeLabBoostSecs,
-        potionRate: 24,
-      });
+      const realElapsedSec = calc24xRealTimeSeconds(mainRemSec, potionCount, activeLabBoostSecs);
       nextMainTs = now + Math.round(realElapsedSec * 1000);
       nextMainDate = formatCompletionDate(nextMainTs);
       mainSavedSec = Math.max(0, mainRemSec - realElapsedSec);
@@ -3277,14 +3275,7 @@ export default function App() {
     let goblinSavedSec = 0;
 
     if (goblinRemSec > 0) {
-      const realElapsedSec = calcHelperSessionRealTimeSeconds({
-        remainingUpgradeSeconds: goblinRemSec,
-        helperLevel: labHelper.level,
-        activeSessionSeconds: labHelper.assignedSlot === 'goblin' ? helperRemSessionSecs : 0,
-        potionCount,
-        activePotionBoostSeconds: activeLabBoostSecs,
-        potionRate: 24,
-      });
+      const realElapsedSec = calc24xRealTimeSeconds(goblinRemSec, potionCount, activeLabBoostSecs);
       nextGoblinTs = now + Math.round(realElapsedSec * 1000);
       nextGoblinDate = formatCompletionDate(nextGoblinTs);
       goblinSavedSec = Math.max(0, goblinRemSec - realElapsedSec);
@@ -3812,14 +3803,10 @@ export default function App() {
     targetBuilders: BuilderTime[],
     potionCount: number,
     activeBuilderBoostSecs = getRemainingBoostSeconds(builderBoostEndTime),
-    bHelper: BuilderApprenticeState = builderApprentice,
+    _bHelper: BuilderApprenticeState = builderApprentice,
     useLiveRemainingWork = false
   ): { computedResults: LockedResultItem[]; computedSavedText: string } => {
     const calcTimestamp = Date.now();
-    const helperRemSessionSecs = getRemainingBoostSeconds(
-      bHelper.activeSessionEndTime,
-      calcTimestamp
-    );
     const activeBuildersCount = targetMode === 'single' ? 1 : targetNumBuilders;
     const computedResults: LockedResultItem[] = [];
     let totalSavedSecondsAllBuilders = 0;
@@ -3833,14 +3820,11 @@ export default function App() {
         : getTimerTotalSeconds(b);
       if (totalBuilderSeconds <= 0) continue;
 
-      const realTimeSeconds = calcHelperSessionRealTimeSeconds({
-        remainingUpgradeSeconds: totalBuilderSeconds,
-        helperLevel: bHelper.level,
-        activeSessionSeconds: bHelper.assignedSlot === slotIdx ? helperRemSessionSecs : 0,
+      const realTimeSeconds = calc10xRealTimeSeconds(
+        totalBuilderSeconds,
         potionCount,
-        activePotionBoostSeconds: activeBuilderBoostSecs,
-        potionRate: 10,
-      });
+        activeBuilderBoostSecs
+      );
 
       const realDurationMs = Math.round(realTimeSeconds * 1000);
       const targetTimestamp = calcTimestamp + realDurationMs;
@@ -4042,110 +4026,40 @@ export default function App() {
   // Helper Level Updates & Manual 1-Hour Session Activation from Helpers Sub-Tab
   const handleChangeBuilderApprenticeLevel = (nextLevel: number) => {
     const clamped = Math.min(8, Math.max(1, nextLevel));
-    const nextHelper: BuilderApprenticeState = {
-      ...builderApprentice,
+    setBuilderApprentice((prev) => ({
+      ...prev,
       level: clamped,
-    };
-    setBuilderApprentice(nextHelper);
-    if (
-      nextHelper.assignedSlot !== null &&
-      nextHelper.activeSessionEndTime &&
-      nextHelper.activeSessionEndTime > Date.now() &&
-      lockedResults.length > 0
-    ) {
-      const syncedBuilders = builders.map((b, idx) => {
-        const remSec = getBuilderSlotCurrentRemainingSeconds(idx);
-        return remSec > 0 ? syncTimerFromRemainingSeconds(b, remSec) : b;
-      });
-      setBuilders(syncedBuilders);
-      runCalculationWithData(
-        currentMode === 'single' ? 'single' : 'multi',
-        numBuilders,
-        syncedBuilders,
-        '0',
-        activeAccountId,
-        getActiveVillageName(activeAccountId),
-        undefined,
-        nextHelper
-      );
-    }
+    }));
   };
 
   const handleChangeLabApprenticeLevel = (nextLevel: number) => {
     const clamped = Math.min(8, Math.max(1, nextLevel));
-    const nextHelper: LabApprenticeState = {
-      ...labApprentice,
+    setLabApprentice((prev) => ({
+      ...prev,
       level: clamped,
-    };
-    setLabApprentice(nextHelper);
-    if (
-      nextHelper.assignedSlot !== null &&
-      nextHelper.activeSessionEndTime &&
-      nextHelper.activeSessionEndTime > Date.now()
-    ) {
-      const syncedMain = syncTimerFromRemainingSeconds(
-        labTimer,
-        getLabSlotCurrentRemainingSeconds('main')
-      );
-      const syncedGoblin = syncTimerFromRemainingSeconds(
-        goblinLabTimer,
-        getLabSlotCurrentRemainingSeconds('goblin')
-      );
-      setLabTimer(syncedMain);
-      setGoblinLabTimer(syncedGoblin);
-      computeLabSchedule(
-        syncedMain,
-        syncedGoblin,
-        0,
-        activeAccountId,
-        getActiveVillageName(activeAccountId),
-        undefined,
-        nextHelper
-      );
-    }
+    }));
   };
 
   const handleStartBuilderApprenticeSession = (slotIdx: number) => {
     triggerHaptic([15, 30, 15]);
     const now = Date.now();
-
-    // Snapshot current remaining upgrade seconds across builder slots so no progress is lost
-    const syncedBuilders = builders.map((b, idx) => {
-      const remSec = getBuilderSlotCurrentRemainingSeconds(idx);
-      return remSec > 0 ? syncTimerFromRemainingSeconds(b, remSec) : b;
-    });
-
-    const nextNumBuilders = Math.max(numBuilders, slotIdx + 1);
     const nextHelper: BuilderApprenticeState = {
       ...builderApprentice,
       assignedSlot: slotIdx,
-      activeSessionEndTime: now + 3600 * 1000, // 1 real-time hour (3600 seconds)
-      cooldownEndTime: now + 86400 * 1000, // 24h cycle cooldown
+      activeSessionEndTime: now + 3600 * 1000,
+      cooldownEndTime: now + 86400 * 1000,
     };
-
-    setBuilders(syncedBuilders);
-    if (nextNumBuilders !== numBuilders) {
-      setNumBuilders(nextNumBuilders);
-    }
     setBuilderApprentice(nextHelper);
+    const villageName = getActiveVillageName(activeAccountId);
+    void scheduleExactSlotNotification({
+      villageId: activeAccountId,
+      slotKey: 'helper_builder',
+      title: `👷 Builder Helper Available • ${villageName}`,
+      body: `${villageName}: Builder's Apprentice cooldown has ended and is now available!`,
+      targetTimestamp: nextHelper.cooldownEndTime,
+    });
 
-    runCalculationWithData(
-      'multi',
-      nextNumBuilders,
-      syncedBuilders,
-      '0',
-      activeAccountId,
-      getActiveVillageName(activeAccountId),
-      undefined,
-      nextHelper
-    );
-    void scheduleHelperCooldownNotificationsForVillage(
-      activeAccountId,
-      nextHelper.cooldownEndTime,
-      labApprentice.cooldownEndTime
-    );
-
-    const targetB = syncedBuilders[slotIdx];
+    const targetB = builders[slotIdx];
     const targetLabel =
       targetB?.upgradeTitle ||
       (slotIdx === 6 ? 'Goblin Builder' : `Builder ${slotIdx + 1}`);
@@ -4153,50 +4067,30 @@ export default function App() {
     setAssignModalType(null);
     showToast(
       'success',
-      `👷 Builder's Apprentice boosting ${targetLabel} at ${speedN}x speed for 1h!`
+      `👷 Builder's Apprentice assigned to ${targetLabel} (${speedN}x)!`
     );
   };
 
   const handleStartLabApprenticeSession = (slot: 'main' | 'goblin') => {
     triggerHaptic([15, 30, 15]);
     const now = Date.now();
-
-    const syncedMain = syncTimerFromRemainingSeconds(
-      labTimer,
-      getLabSlotCurrentRemainingSeconds('main')
-    );
-    const syncedGoblin = syncTimerFromRemainingSeconds(
-      goblinLabTimer,
-      getLabSlotCurrentRemainingSeconds('goblin')
-    );
-
     const nextHelper: LabApprenticeState = {
       ...labApprentice,
       assignedSlot: slot,
-      activeSessionEndTime: now + 3600 * 1000, // 1 real-time hour (3600 seconds)
-      cooldownEndTime: now + 86400 * 1000, // 24h cycle cooldown
+      activeSessionEndTime: now + 3600 * 1000,
+      cooldownEndTime: now + 86400 * 1000,
     };
-
-    setLabTimer(syncedMain);
-    setGoblinLabTimer(syncedGoblin);
     setLabApprentice(nextHelper);
+    const villageName = getActiveVillageName(activeAccountId);
+    void scheduleExactSlotNotification({
+      villageId: activeAccountId,
+      slotKey: 'helper_lab',
+      title: `🔬 Lab Helper Available • ${villageName}`,
+      body: `${villageName}: Lab Apprentice cooldown has ended and is now available!`,
+      targetTimestamp: nextHelper.cooldownEndTime,
+    });
 
-    computeLabSchedule(
-      syncedMain,
-      syncedGoblin,
-      0,
-      activeAccountId,
-      getActiveVillageName(activeAccountId),
-      undefined,
-      nextHelper
-    );
-    void scheduleHelperCooldownNotificationsForVillage(
-      activeAccountId,
-      builderApprentice.cooldownEndTime,
-      nextHelper.cooldownEndTime
-    );
-
-    const targetTimer = slot === 'main' ? syncedMain : syncedGoblin;
+    const targetTimer = slot === 'main' ? labTimer : goblinLabTimer;
     const targetLabel =
       targetTimer.upgradeTitle ||
       (slot === 'main' ? 'Troop / Spell Upgrade' : 'Goblin Researcher');
@@ -4204,7 +4098,7 @@ export default function App() {
     setAssignModalType(null);
     showToast(
       'success',
-      `🔬 Lab Apprentice boosting ${targetLabel} at ${speedN}x speed for 1h!`
+      `🔬 Lab Apprentice assigned to ${targetLabel} (${speedN}x)!`
     );
   };
 
@@ -4444,11 +4338,6 @@ export default function App() {
         d.builderBoostEndTime,
         d.labBoostEndTime,
         d.petBoostEndTime
-      );
-      void scheduleHelperCooldownNotificationsForVillage(
-        profile.id,
-        d.builderApprentice?.cooldownEndTime ?? null,
-        d.labApprentice?.cooldownEndTime ?? null
       );
     });
 
@@ -4837,41 +4726,23 @@ export default function App() {
       true
     );
 
-    // Clear all previous pending notifications for this village and re-schedule fresh exact alarms
-    void (async () => {
-      await cancelAllNotificationsForVillage(targetVillageId);
-      await scheduleBuilderNotificationsForVillage(
-        targetVillageId,
-        targetVillageName,
-        computedResults
-      );
-      await scheduleLabNotificationsForVillage(
-        targetVillageId,
-        targetVillageName,
-        nextLabTimer,
-        labSched.nextMainTs,
-        nextGoblinLabTimer,
-        labSched.nextGoblinTs
-      );
-      await schedulePetNotificationForVillage(
-        targetVillageId,
-        targetVillageName,
-        nextPetTimer,
-        petSched.nextPetTs
-      );
-      await scheduleBoostExpiryNotificationsForVillage(
-        targetVillageId,
-        targetVillageName,
-        nextBuilderBoostEndTime,
-        nextLabBoostEndTime,
-        nextPetBoostEndTime
-      );
-      await scheduleHelperCooldownNotificationsForVillage(
-        targetVillageId,
-        nextBuilderApprentice.cooldownEndTime,
-        nextLabApprentice.cooldownEndTime
-      );
-    })();
+    // Clear all previous pending notifications once and schedule all active upgrade & boost alarms in a single pass
+    void scheduleAllVillageNotificationsSinglePass({
+      villageId: targetVillageId,
+      villageName: targetVillageName,
+      builderResults: computedResults,
+      labMainTimer: nextLabTimer,
+      labMainTargetTs: labSched.nextMainTs,
+      labGoblinTimer: nextGoblinLabTimer,
+      labGoblinTargetTs: labSched.nextGoblinTs,
+      petTimerVal: nextPetTimer,
+      petTargetTs: petSched.nextPetTs,
+      builderBoostEndTime: nextBuilderBoostEndTime,
+      labBoostEndTime: nextLabBoostEndTime,
+      petBoostEndTime: nextPetBoostEndTime,
+      builderHelperCooldownEndTime: nextBuilderApprentice.cooldownEndTime,
+      labHelperCooldownEndTime: nextLabApprentice.cooldownEndTime,
+    });
 
     setLabTimer(nextLabTimer);
     setGoblinLabTimer(nextGoblinLabTimer);

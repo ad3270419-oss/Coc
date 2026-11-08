@@ -1963,15 +1963,9 @@ function formatWidgetClockTime(timestamp: number): string {
   });
 }
 
-function formatWidgetStaticFinishTime(timestamp: number, now = Date.now()): string {
+function formatWidgetCompactDay(timestamp: number, now = Date.now()): string {
   const targetDate = new Date(timestamp);
   const nowDate = new Date(now);
-  const timePart = targetDate.toLocaleTimeString('en-US', {
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: true,
-  });
-
   const startOfToday = new Date(
     nowDate.getFullYear(),
     nowDate.getMonth(),
@@ -1985,27 +1979,26 @@ function formatWidgetStaticFinishTime(timestamp: number, now = Date.now()): stri
   const dayDiff = Math.round((startOfTargetDay - startOfToday) / 86400000);
 
   if (dayDiff === 0) {
-    return `Today, ${timePart}`;
+    return 'Today';
   }
   if (dayDiff === 1) {
-    return `Tomorrow, ${timePart}`;
+    return 'Tomorrow';
   }
-  const datePart = targetDate.toLocaleDateString('en-US', {
+  return targetDate.toLocaleDateString('en-US', {
     month: 'short',
     day: 'numeric',
   });
-  return `${datePart}, ${timePart}`;
 }
 
 function resolveWidgetThLabel(d: SavedState, profileName: string): string {
   if (typeof d.thLevel === 'number' && d.thLevel >= 1) {
-    return `TH ${d.thLevel}`;
+    return `[TH ${d.thLevel}]`;
   }
   const nameMatch = profileName.match(/TH\s*(\d{1,2})/i);
   if (nameMatch && nameMatch[1]) {
-    return `TH ${nameMatch[1]}`;
+    return `[TH ${nameMatch[1]}]`;
   }
-  return 'TH 17';
+  return '[TH --]';
 }
 
 function syncAllVillagesToNativeWidget(
@@ -2064,24 +2057,13 @@ function syncAllVillagesToNativeWidget(
       const boostStatus =
         activeBoostParts.length > 0 ? activeBoostParts[0] : 'No Active Boosts';
 
-      let labStatus = 'Lab: Idle';
+      let labStatus = 'Idle';
       if (d.targetLabTimestamp && d.targetLabTimestamp > now) {
         const labName = d.labTimer?.upgradeTitle || 'Research';
-        const labTargetLvl =
-          typeof d.labTimer?.upgradeLevel === 'number'
-            ? ` → Lvl ${d.labTimer.upgradeLevel + 1}`
-            : '';
-        labStatus = `${labName}${labTargetLvl} (${formatWidgetStaticFinishTime(
-          d.targetLabTimestamp,
-          now
-        )})`;
+        labStatus = `${labName} (${formatWidgetCompactDay(d.targetLabTimestamp, now)})`;
       } else if (d.targetGoblinLabTimestamp && d.targetGoblinLabTimestamp > now) {
-        const gobLabName = d.goblinLabTimer?.upgradeTitle || 'Goblin Research';
-        const gobTargetLvl =
-          typeof d.goblinLabTimer?.upgradeLevel === 'number'
-            ? ` → Lvl ${d.goblinLabTimer.upgradeLevel + 1}`
-            : '';
-        labStatus = `${gobLabName}${gobTargetLvl} (${formatWidgetStaticFinishTime(
+        const gobLabName = d.goblinLabTimer?.upgradeTitle || 'Goblin Lab';
+        labStatus = `${gobLabName} (${formatWidgetCompactDay(
           d.targetGoblinLabTimestamp,
           now
         )})`;
@@ -2089,23 +2071,33 @@ function syncAllVillagesToNativeWidget(
 
       let petStatus = '';
       if (d.targetPetTimestamp && d.targetPetTimestamp > now) {
-        const petName = d.petTimer?.upgradeTitle || 'Pet Upgrade';
-        const petTargetLvl =
-          typeof d.petTimer?.upgradeLevel === 'number'
-            ? ` → Lvl ${d.petTimer.upgradeLevel + 1}`
-            : '';
-        petStatus = `${petName}${petTargetLvl} (${formatWidgetStaticFinishTime(
-          d.targetPetTimestamp,
-          now
-        )})`;
+        const petName = d.petTimer?.upgradeTitle || 'Pet';
+        petStatus = `${petName} (${formatWidgetCompactDay(d.targetPetTimestamp, now)})`;
       }
 
-      const upgrades = activeResults.slice(0, 4).map((item) => ({
-        name: item.upgradeTitle || (item.isGoblin ? 'Goblin Builder' : 'Upgrade'),
-        targetLvl:
-          typeof item.upgradeLevel === 'number' ? `Lvl ${item.upgradeLevel + 1}` : '',
-        finishFormatted: formatWidgetStaticFinishTime(item.targetTimestamp, now),
-      }));
+      const upgrades = activeResults.slice(0, 4).map((item) => {
+        const isHero = Boolean(item.rawId && String(item.rawId).startsWith('28'));
+        const badgeType = item.isGoblin ? 'green' : isHero ? 'purple' : 'gold';
+        const slotBadge =
+          item.slotBadge ||
+          (item.isGoblin
+            ? '[GOBLIN]'
+            : isHero
+            ? '[HERO]'
+            : `[B${(item.builderIndex ?? 0) + 1}]`);
+        const targetLvl =
+          typeof item.upgradeLevel === 'number'
+            ? `LVL ${item.upgradeLevel} → LVL ${item.upgradeLevel + 1}`
+            : '';
+
+        return {
+          slotBadge,
+          badgeType,
+          name: item.upgradeTitle || (item.isGoblin ? 'Goblin Builder' : 'Upgrade'),
+          targetLvl,
+          finishFormatted: formatCompletionDate(item.targetTimestamp),
+        };
+      });
 
       return {
         name: profile.name,
@@ -5698,41 +5690,42 @@ export default function App() {
     setResearchPotions(targetResPotions);
     setPetPotions(targetPetPotionsCount);
 
+    const importedProfileState: SavedState = {
+      ...createDefaultSavedState(),
+      mode: 'multi',
+      numBuilders: nextBuilderSliderCount,
+      builders: nextBuilders,
+      potions: targetPotions,
+      lockedResults: computedResults,
+      lockedSavedText: computedSavedText,
+      researchPotions: targetResPotions,
+      labTimer: nextLabTimer,
+      goblinLabTimer: nextGoblinLabTimer,
+      targetLabTimestamp: labSched.nextMainTs,
+      labFormattedDate: labSched.nextMainDate,
+      labSavedText: labSched.nextLabSavedText,
+      targetGoblinLabTimestamp: labSched.nextGoblinTs,
+      goblinLabFormattedDate: labSched.nextGoblinDate,
+      petPotions: targetPetPotionsCount,
+      petTimer: nextPetTimer,
+      targetPetTimestamp: petSched.nextPetTs,
+      petFormattedDate: petSched.nextPetDate,
+      petSavedText: petSched.nextPetSavedText,
+      builderBoostEndTime: nextBuilderBoostEndTime,
+      labBoostEndTime: nextLabBoostEndTime,
+      petBoostEndTime: nextPetBoostEndTime,
+      builderApprentice: nextBuilderApprentice,
+      labApprentice: nextLabApprentice,
+      thLevel: parsedThLevel,
+      lastSynced: syncedTimeLabel,
+    };
+
     if (isAddingNewAccount) {
-      const newProfileState: SavedState = {
-        ...createDefaultSavedState(),
-        mode: 'multi',
-        numBuilders: nextBuilderSliderCount,
-        builders: nextBuilders,
-        potions: targetPotions,
-        lockedResults: computedResults,
-        lockedSavedText: computedSavedText,
-        researchPotions: targetResPotions,
-        labTimer: nextLabTimer,
-        goblinLabTimer: nextGoblinLabTimer,
-        targetLabTimestamp: labSched.nextMainTs,
-        labFormattedDate: labSched.nextMainDate,
-        labSavedText: labSched.nextLabSavedText,
-        targetGoblinLabTimestamp: labSched.nextGoblinTs,
-        goblinLabFormattedDate: labSched.nextGoblinDate,
-        petPotions: targetPetPotionsCount,
-        petTimer: nextPetTimer,
-        targetPetTimestamp: petSched.nextPetTs,
-        petFormattedDate: petSched.nextPetDate,
-        petSavedText: petSched.nextPetSavedText,
-        builderBoostEndTime: nextBuilderBoostEndTime,
-        labBoostEndTime: nextLabBoostEndTime,
-        petBoostEndTime: nextPetBoostEndTime,
-        builderApprentice: nextBuilderApprentice,
-        labApprentice: nextLabApprentice,
-        thLevel: parsedThLevel,
-        lastSynced: syncedTimeLabel,
-      };
       const newProfile: VillageProfile = {
         id: newAccountId,
         name: newAccountName,
         tag: extractedTag,
-        data: newProfileState,
+        data: importedProfileState,
       };
       setAccounts((prev) => {
         const nextList = [...prev, newProfile];
@@ -5740,11 +5733,20 @@ export default function App() {
         return nextList;
       });
       setActiveAccountId(newAccountId);
-    } else if (extractedTag) {
-      // Permanently bind extracted root `tag` to the active account profile on first-time JSON import
+    } else {
+      // Immediately persist imported state (including dynamic thLevel & tag) into the active account and sync widget
       setAccounts((prev) => {
         const updated = prev.map((acc) =>
-          acc.id === activeAccountId && !acc.tag ? { ...acc, tag: extractedTag } : acc
+          acc.id === activeAccountId
+            ? {
+                ...acc,
+                tag: acc.tag || extractedTag,
+                data: {
+                  ...acc.data,
+                  ...importedProfileState,
+                },
+              }
+            : acc
         );
         try {
           const multiPayload: MultiAccountStorage = {

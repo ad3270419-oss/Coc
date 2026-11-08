@@ -2,42 +2,46 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/widget_root"
     android:layout_width="match_parent"
-    android:layout_height="match_parent"
+    android:layout_height="wrap_content"
     android:background="@drawable/widget_card_bg"
     android:orientation="vertical"
-    android:padding="12dp">
+    android:paddingLeft="10dp"
+    android:paddingTop="9dp"
+    android:paddingRight="10dp"
+    android:paddingBottom="9dp">
 
-    <!-- 1. HEADER BAR: Town Hall Level, Player Tag, Account Name & In-Widget Switch Button [ ⇄ ] -->
+    <!-- 1. HEADER BAR: [TH {lvl}] Capsule, Player Tag, Village Name & [ ⇄ X/Y ] Switch Button -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:gravity="center_vertical"
         android:orientation="horizontal"
-        android:paddingBottom="6dp">
+        android:paddingBottom="5dp">
 
         <TextView
             android:id="@+id/widget_th_level"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:background="@drawable/widget_section_bg"
-            android:paddingLeft="8dp"
-            android:paddingTop="3dp"
-            android:paddingRight="8dp"
-            android:paddingBottom="3dp"
-            android:text="TH 17"
-            android:textColor="#F59E0B"
-            android:textSize="12sp"
+            android:background="@drawable/capsule_gold"
+            android:paddingLeft="6dp"
+            android:paddingTop="2dp"
+            android:paddingRight="6dp"
+            android:paddingBottom="2dp"
+            android:singleLine="true"
+            android:text="[TH --]"
+            android:textColor="#FBBF24"
+            android:textSize="10.5sp"
             android:textStyle="bold" />
 
         <TextView
             android:id="@+id/widget_player_tag"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginLeft="8dp"
+            android:layout_marginLeft="6dp"
             android:singleLine="true"
             android:text="#VILLAGE"
-            android:textColor="#A78BFA"
-            android:textSize="12sp"
+            android:textColor="#C084FC"
+            android:textSize="11sp"
             android:textStyle="bold" />
 
         <TextView
@@ -49,7 +53,7 @@
             android:ellipsize="end"
             android:singleLine="true"
             android:text="Main Account"
-            android:textColor="#94A3B8"
+            android:textColor="#FFFFFF"
             android:textSize="11sp"
             android:textStyle="bold" />
 
@@ -59,13 +63,14 @@
             android:layout_height="wrap_content"
             android:layout_marginLeft="6dp"
             android:background="@drawable/widget_switch_bg"
-            android:paddingLeft="9dp"
-            android:paddingTop="4dp"
-            android:paddingRight="9dp"
-            android:paddingBottom="4dp"
+            android:paddingLeft="8dp"
+            android:paddingTop="3dp"
+            android:paddingRight="8dp"
+            android:paddingBottom="3dp"
+            android:singleLine="true"
             android:text="[ ⇄ ]"
-            android:textColor="#EAB308"
-            android:textSize="11sp"
+            android:textColor="#FBBF24"
+            android:textSize="10.5sp"
             android:textStyle="bold" />
     </LinearLayout>
 
@@ -76,10 +81,10 @@
         android:background="@drawable/widget_section_bg"
         android:gravity="center_vertical"
         android:orientation="horizontal"
-        android:paddingLeft="10dp"
-        android:paddingTop="6dp"
-        android:paddingRight="10dp"
-        android:paddingBottom="6dp">
+        android:paddingLeft="8dp"
+        android:paddingTop="4dp"
+        android:paddingRight="8dp"
+        android:paddingBottom="4dp">
 
         <TextView
             android:id="@+id/widget_builders_status"
@@ -88,90 +93,120 @@
             android:layout_weight="1"
             android:singleLine="true"
             android:text="Builders: 0/6 Busy"
-            android:textColor="#EAB308"
-            android:textSize="11.5sp"
+            android:textColor="#FBBF24"
+            android:textSize="10.5sp"
             android:textStyle="bold" />
 
         <TextView
             android:id="@+id/widget_boost_status"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginLeft="8dp"
+            android:layout_marginLeft="6dp"
             android:singleLine="true"
             android:text="No Active Boosts"
-            android:textColor="#A78BFA"
-            android:textSize="11sp"
+            android:textColor="#94A3B8"
+            android:textSize="10sp"
             android:textStyle="bold" />
     </LinearLayout>
 
-    <!-- 3. RESEARCH & PET STATUS BANNER -->
+    <!-- 3. SINGLE-LINE LAB & PET SUMMARY ROW: [LAB] ... | [PET] ... -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="5dp"
+        android:layout_marginTop="4dp"
         android:background="@drawable/widget_section_bg"
-        android:orientation="vertical"
-        android:paddingLeft="10dp"
-        android:paddingTop="5dp"
-        android:paddingRight="10dp"
-        android:paddingBottom="5dp">
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingLeft="8dp"
+        android:paddingTop="4dp"
+        android:paddingRight="8dp"
+        android:paddingBottom="4dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:background="@drawable/capsule_purple"
+            android:paddingLeft="5dp"
+            android:paddingTop="1dp"
+            android:paddingRight="5dp"
+            android:paddingBottom="1dp"
+            android:text="[LAB]"
+            android:textColor="#E879F9"
+            android:textSize="9.5sp"
+            android:textStyle="bold" />
 
         <TextView
             android:id="@+id/widget_lab_status"
-            android:layout_width="match_parent"
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
+            android:layout_marginLeft="5dp"
+            android:layout_weight="1"
             android:ellipsize="end"
             android:singleLine="true"
-            android:text="Lab: Idle"
-            android:textColor="#A78BFA"
-            android:textSize="11sp"
+            android:text="Idle"
+            android:textColor="#FFFFFF"
+            android:textSize="10.5sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginLeft="6dp"
+            android:layout_marginRight="6dp"
+            android:text="|"
+            android:textColor="#475569"
+            android:textSize="10.5sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:background="@drawable/capsule_green"
+            android:paddingLeft="5dp"
+            android:paddingTop="1dp"
+            android:paddingRight="5dp"
+            android:paddingBottom="1dp"
+            android:text="[PET]"
+            android:textColor="#34D399"
+            android:textSize="9.5sp"
             android:textStyle="bold" />
 
         <TextView
             android:id="@+id/widget_pet_status"
-            android:layout_width="match_parent"
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:layout_marginTop="2dp"
+            android:layout_marginLeft="5dp"
+            android:layout_weight="1"
             android:ellipsize="end"
             android:singleLine="true"
-            android:text="Pet: Idle"
-            android:textColor="#94A3B8"
+            android:text="Idle"
+            android:textColor="#FFFFFF"
             android:textSize="10.5sp"
-            android:visibility="gone" />
+            android:textStyle="bold" />
     </LinearLayout>
 
-    <!-- 4. TOP ACTIVE UPGRADES LIST (Top 3-4 Nearest Completing Upgrades) -->
-    <TextView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="6dp"
-        android:layout_marginBottom="3dp"
-        android:text="NEAREST COMPLETING UPGRADES"
-        android:textColor="#F59E0B"
-        android:textSize="9.5sp"
-        android:textStyle="bold" />
-
+    <!-- 4. COMPACT TWO-COLUMN UPGRADE LIST (wraps content tightly, zero empty vertical gap) -->
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
         android:background="@drawable/widget_section_bg"
         android:orientation="vertical"
-        android:paddingLeft="10dp"
-        android:paddingTop="6dp"
-        android:paddingRight="10dp"
-        android:paddingBottom="6dp">
+        android:paddingLeft="8dp"
+        android:paddingTop="4dp"
+        android:paddingRight="8dp"
+        android:paddingBottom="4dp">
 
         <!-- Empty Fallback -->
         <TextView
             android:id="@+id/widget_upgrades_empty"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:paddingTop="6dp"
-            android:paddingBottom="6dp"
+            android:paddingTop="3dp"
+            android:paddingBottom="3dp"
             android:text="All Builders Available"
             android:textColor="#94A3B8"
-            android:textSize="11.5sp"
+            android:textSize="11sp"
             android:textStyle="bold" />
 
         <!-- Row 1 -->
@@ -181,30 +216,62 @@
             android:layout_height="wrap_content"
             android:gravity="center_vertical"
             android:orientation="horizontal"
-            android:paddingTop="2dp"
-            android:paddingBottom="2dp"
+            android:paddingTop="3dp"
+            android:paddingBottom="3dp"
             android:visibility="gone">
+
+            <TextView
+                android:id="@+id/widget_upgrade_badge_1"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="@drawable/capsule_gold"
+                android:paddingLeft="5dp"
+                android:paddingTop="1dp"
+                android:paddingRight="5dp"
+                android:paddingBottom="1dp"
+                android:singleLine="true"
+                android:text="[B1]"
+                android:textColor="#FBBF24"
+                android:textSize="9.5sp"
+                android:textStyle="bold" />
 
             <TextView
                 android:id="@+id/widget_upgrade_title_1"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
+                android:layout_marginLeft="6dp"
                 android:layout_weight="1"
                 android:ellipsize="end"
                 android:singleLine="true"
-                android:text="Upgrade → Lvl 1"
-                android:textColor="#A78BFA"
-                android:textSize="11.5sp"
+                android:text="Upgrade"
+                android:textColor="#FFFFFF"
+                android:textSize="11sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/widget_upgrade_lvl_1"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginLeft="5dp"
+                android:background="@drawable/capsule_lvl"
+                android:paddingLeft="5dp"
+                android:paddingTop="1dp"
+                android:paddingRight="5dp"
+                android:paddingBottom="1dp"
+                android:singleLine="true"
+                android:text="LVL 1 → LVL 2"
+                android:textColor="#FBBF24"
+                android:textSize="9sp"
                 android:textStyle="bold" />
 
             <TextView
                 android:id="@+id/widget_upgrade_finish_1"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginLeft="8dp"
+                android:layout_marginLeft="7dp"
                 android:singleLine="true"
-                android:text="Finishes: Today"
-                android:textColor="#64748B"
+                android:text="Nov 9, 8:55 AM"
+                android:textColor="#F59E0B"
                 android:textSize="10.5sp"
                 android:textStyle="bold" />
         </LinearLayout>
@@ -216,30 +283,62 @@
             android:layout_height="wrap_content"
             android:gravity="center_vertical"
             android:orientation="horizontal"
-            android:paddingTop="2dp"
-            android:paddingBottom="2dp"
+            android:paddingTop="3dp"
+            android:paddingBottom="3dp"
             android:visibility="gone">
+
+            <TextView
+                android:id="@+id/widget_upgrade_badge_2"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="@drawable/capsule_gold"
+                android:paddingLeft="5dp"
+                android:paddingTop="1dp"
+                android:paddingRight="5dp"
+                android:paddingBottom="1dp"
+                android:singleLine="true"
+                android:text="[B2]"
+                android:textColor="#FBBF24"
+                android:textSize="9.5sp"
+                android:textStyle="bold" />
 
             <TextView
                 android:id="@+id/widget_upgrade_title_2"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
+                android:layout_marginLeft="6dp"
                 android:layout_weight="1"
                 android:ellipsize="end"
                 android:singleLine="true"
-                android:text="Upgrade → Lvl 1"
-                android:textColor="#A78BFA"
-                android:textSize="11.5sp"
+                android:text="Upgrade"
+                android:textColor="#FFFFFF"
+                android:textSize="11sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/widget_upgrade_lvl_2"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginLeft="5dp"
+                android:background="@drawable/capsule_lvl"
+                android:paddingLeft="5dp"
+                android:paddingTop="1dp"
+                android:paddingRight="5dp"
+                android:paddingBottom="1dp"
+                android:singleLine="true"
+                android:text="LVL 1 → LVL 2"
+                android:textColor="#FBBF24"
+                android:textSize="9sp"
                 android:textStyle="bold" />
 
             <TextView
                 android:id="@+id/widget_upgrade_finish_2"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginLeft="8dp"
+                android:layout_marginLeft="7dp"
                 android:singleLine="true"
-                android:text="Finishes: Today"
-                android:textColor="#64748B"
+                android:text="Nov 9, 2:59 PM"
+                android:textColor="#F59E0B"
                 android:textSize="10.5sp"
                 android:textStyle="bold" />
         </LinearLayout>
@@ -251,30 +350,62 @@
             android:layout_height="wrap_content"
             android:gravity="center_vertical"
             android:orientation="horizontal"
-            android:paddingTop="2dp"
-            android:paddingBottom="2dp"
+            android:paddingTop="3dp"
+            android:paddingBottom="3dp"
             android:visibility="gone">
+
+            <TextView
+                android:id="@+id/widget_upgrade_badge_3"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="@drawable/capsule_gold"
+                android:paddingLeft="5dp"
+                android:paddingTop="1dp"
+                android:paddingRight="5dp"
+                android:paddingBottom="1dp"
+                android:singleLine="true"
+                android:text="[B3]"
+                android:textColor="#FBBF24"
+                android:textSize="9.5sp"
+                android:textStyle="bold" />
 
             <TextView
                 android:id="@+id/widget_upgrade_title_3"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
+                android:layout_marginLeft="6dp"
                 android:layout_weight="1"
                 android:ellipsize="end"
                 android:singleLine="true"
-                android:text="Upgrade → Lvl 1"
-                android:textColor="#94A3B8"
-                android:textSize="11.5sp"
+                android:text="Upgrade"
+                android:textColor="#FFFFFF"
+                android:textSize="11sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/widget_upgrade_lvl_3"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginLeft="5dp"
+                android:background="@drawable/capsule_lvl"
+                android:paddingLeft="5dp"
+                android:paddingTop="1dp"
+                android:paddingRight="5dp"
+                android:paddingBottom="1dp"
+                android:singleLine="true"
+                android:text="LVL 1 → LVL 2"
+                android:textColor="#FBBF24"
+                android:textSize="9sp"
                 android:textStyle="bold" />
 
             <TextView
                 android:id="@+id/widget_upgrade_finish_3"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginLeft="8dp"
+                android:layout_marginLeft="7dp"
                 android:singleLine="true"
-                android:text="Finishes: Tomorrow"
-                android:textColor="#64748B"
+                android:text="Nov 9, 6:00 PM"
+                android:textColor="#F59E0B"
                 android:textSize="10.5sp"
                 android:textStyle="bold" />
         </LinearLayout>
@@ -286,40 +417,72 @@
             android:layout_height="wrap_content"
             android:gravity="center_vertical"
             android:orientation="horizontal"
-            android:paddingTop="2dp"
-            android:paddingBottom="2dp"
+            android:paddingTop="3dp"
+            android:paddingBottom="3dp"
             android:visibility="gone">
+
+            <TextView
+                android:id="@+id/widget_upgrade_badge_4"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="@drawable/capsule_gold"
+                android:paddingLeft="5dp"
+                android:paddingTop="1dp"
+                android:paddingRight="5dp"
+                android:paddingBottom="1dp"
+                android:singleLine="true"
+                android:text="[B4]"
+                android:textColor="#FBBF24"
+                android:textSize="9.5sp"
+                android:textStyle="bold" />
 
             <TextView
                 android:id="@+id/widget_upgrade_title_4"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
+                android:layout_marginLeft="6dp"
                 android:layout_weight="1"
                 android:ellipsize="end"
                 android:singleLine="true"
-                android:text="Upgrade → Lvl 1"
-                android:textColor="#94A3B8"
-                android:textSize="11.5sp"
+                android:text="Upgrade"
+                android:textColor="#FFFFFF"
+                android:textSize="11sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/widget_upgrade_lvl_4"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginLeft="5dp"
+                android:background="@drawable/capsule_lvl"
+                android:paddingLeft="5dp"
+                android:paddingTop="1dp"
+                android:paddingRight="5dp"
+                android:paddingBottom="1dp"
+                android:singleLine="true"
+                android:text="LVL 1 → LVL 2"
+                android:textColor="#FBBF24"
+                android:textSize="9sp"
                 android:textStyle="bold" />
 
             <TextView
                 android:id="@+id/widget_upgrade_finish_4"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginLeft="8dp"
+                android:layout_marginLeft="7dp"
                 android:singleLine="true"
-                android:text="Finishes: Tomorrow"
-                android:textColor="#64748B"
+                android:text="Nov 10, 9:00 AM"
+                android:textColor="#F59E0B"
                 android:textSize="10.5sp"
                 android:textStyle="bold" />
         </LinearLayout>
     </LinearLayout>
 
-    <!-- 5. FOOTER BAR: Last Synced Timestamp & Tap Hint -->
+    <!-- 5. COMPACT FOOTER BAR -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="5dp"
+        android:layout_marginTop="4dp"
         android:gravity="center_vertical"
         android:orientation="horizontal">
 
@@ -331,7 +494,7 @@
             android:singleLine="true"
             android:text="Synced: --:--"
             android:textColor="#64748B"
-            android:textSize="10sp" />
+            android:textSize="9.5sp" />
 
         <TextView
             android:id="@+id/widget_tap_hint"
@@ -339,8 +502,8 @@
             android:layout_height="wrap_content"
             android:singleLine="true"
             android:text="Tap to Open Clash Planner"
-            android:textColor="#64748B"
-            android:textSize="10sp"
+            android:textColor="#94A3B8"
+            android:textSize="9.5sp"
             android:textStyle="bold" />
     </LinearLayout>
 

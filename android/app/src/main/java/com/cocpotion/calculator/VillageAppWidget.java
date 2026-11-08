@@ -30,11 +30,25 @@ public class VillageAppWidget extends AppWidgetProvider {
         R.id.widget_upgrade_row_4
     };
 
+    private static final int[] BADGE_IDS = {
+        R.id.widget_upgrade_badge_1,
+        R.id.widget_upgrade_badge_2,
+        R.id.widget_upgrade_badge_3,
+        R.id.widget_upgrade_badge_4
+    };
+
     private static final int[] TITLE_IDS = {
         R.id.widget_upgrade_title_1,
         R.id.widget_upgrade_title_2,
         R.id.widget_upgrade_title_3,
         R.id.widget_upgrade_title_4
+    };
+
+    private static final int[] LVL_IDS = {
+        R.id.widget_upgrade_lvl_1,
+        R.id.widget_upgrade_lvl_2,
+        R.id.widget_upgrade_lvl_3,
+        R.id.widget_upgrade_lvl_4
     };
 
     private static final int[] FINISH_IDS = {
@@ -130,6 +144,27 @@ public class VillageAppWidget extends AppWidgetProvider {
         }
     }
 
+    private static String formatThCapsuleText(String rawTh) {
+        if (rawTh == null || rawTh.trim().isEmpty()) {
+            return "[TH --]";
+        }
+        String trimmed = rawTh.trim();
+        if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+            return trimmed;
+        }
+        return "[" + trimmed + "]";
+    }
+
+    private static String stripPrefix(String text, String prefix) {
+        if (text == null) return "Idle";
+        String trimmed = text.trim();
+        if (trimmed.regionMatches(true, 0, prefix, 0, prefix.length())) {
+            String rest = trimmed.substring(prefix.length()).trim();
+            return rest.isEmpty() ? "Idle" : rest;
+        }
+        return trimmed.isEmpty() ? "Idle" : trimmed;
+    }
+
     public static void updateSingleWidget(
         Context context,
         AppWidgetManager appWidgetManager,
@@ -164,7 +199,7 @@ public class VillageAppWidget extends AppWidgetProvider {
         );
         views.setOnClickPendingIntent(R.id.widget_root, launchPendingIntent);
 
-        // 3. Read SharedPreferences data and populate pure TextView hierarchy
+        // 3. Read SharedPreferences data and populate capsule/pill TextView hierarchy
         try {
             SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
             String rawJson = prefs.getString(KEY_VILLAGES_DATA, null);
@@ -185,14 +220,15 @@ public class VillageAppWidget extends AppWidgetProvider {
             int total = villages.length();
 
             if (total == 0) {
-                views.setTextViewText(R.id.widget_th_level, "CLASH");
+                views.setTextViewText(R.id.widget_th_level, "[TH --]");
                 views.setTextViewText(R.id.widget_player_tag, "#PLANNER");
                 views.setTextViewText(R.id.widget_village_name, "No Village Synced");
+                views.setTextViewText(R.id.widget_btn_switch, "[ ⇄ ]");
                 views.setTextViewText(R.id.widget_builders_status, "Builders: 0/6 Busy");
                 views.setTextViewText(R.id.widget_boost_status, "No Active Boosts");
                 views.setTextColor(R.id.widget_boost_status, Color.parseColor("#64748B"));
-                views.setTextViewText(R.id.widget_lab_status, "Lab: Idle");
-                views.setViewVisibility(R.id.widget_pet_status, View.GONE);
+                views.setTextViewText(R.id.widget_lab_status, "Idle");
+                views.setTextViewText(R.id.widget_pet_status, "Idle");
                 views.setViewVisibility(R.id.widget_upgrades_empty, View.VISIBLE);
                 views.setTextViewText(
                     R.id.widget_upgrades_empty,
@@ -212,25 +248,21 @@ public class VillageAppWidget extends AppWidgetProvider {
 
             JSONObject village = villages.getJSONObject(activeIdx);
 
-            String thLevel = village.optString("thLevel", "TH --");
+            String thLevel = formatThCapsuleText(village.optString("thLevel", "[TH --]"));
             String tag = village.optString("tag", "#UNBOUND");
             String villageName = village.optString("name", "Village " + (activeIdx + 1));
             String buildersStatus = village.optString("buildersStatus", "0/6 Busy");
             String boostStatus = village.optString("boostStatus", "No Active Boosts");
-            String labStatus = village.optString("labStatus", "Lab: Idle");
-            String petStatus = village.optString("petStatus", "");
+            String labStatus = stripPrefix(village.optString("labStatus", "Idle"), "Lab:");
+            String petStatus = stripPrefix(village.optString("petStatus", "Idle"), "Pet:");
             String lastSynced = village.optString("lastSynced", "--:--");
 
             views.setTextViewText(R.id.widget_th_level, thLevel);
             views.setTextViewText(R.id.widget_player_tag, tag);
-
-            String nameWithCount = total > 1
-                ? villageName + " (" + (activeIdx + 1) + "/" + total + ")"
-                : villageName;
-            views.setTextViewText(R.id.widget_village_name, nameWithCount);
+            views.setTextViewText(R.id.widget_village_name, villageName);
             views.setTextViewText(
                 R.id.widget_btn_switch,
-                total > 1 ? "[ ⇄ " + (activeIdx + 1) + "/" + total + " ]" : "[ ⇄ ]"
+                total > 1 ? "[ ⇄ " + (activeIdx + 1) + "/" + total + " ]" : "[ ⇄ 1/1 ]"
             );
 
             String formattedBuilders = buildersStatus.startsWith("Builders:")
@@ -243,26 +275,20 @@ public class VillageAppWidget extends AppWidgetProvider {
                 && !boostStatus.trim().isEmpty();
             views.setTextColor(
                 R.id.widget_boost_status,
-                Color.parseColor(hasActiveBoost ? "#F59E0B" : "#64748B")
+                Color.parseColor(hasActiveBoost ? "#34D399" : "#94A3B8")
             );
 
-            String formattedLab = labStatus.startsWith("Lab:")
-                ? labStatus
-                : "Lab: " + labStatus;
-            views.setTextViewText(R.id.widget_lab_status, formattedLab);
+            views.setTextViewText(R.id.widget_lab_status, labStatus);
+            views.setTextColor(
+                R.id.widget_lab_status,
+                Color.parseColor("Idle".equalsIgnoreCase(labStatus) ? "#64748B" : "#FFFFFF")
+            );
 
-            if (petStatus != null
-                && !petStatus.trim().isEmpty()
-                && !petStatus.equalsIgnoreCase("Idle")
-                && !petStatus.equalsIgnoreCase("Pet: Idle")) {
-                String formattedPet = petStatus.startsWith("Pet:")
-                    ? petStatus
-                    : "Pet: " + petStatus;
-                views.setTextViewText(R.id.widget_pet_status, formattedPet);
-                views.setViewVisibility(R.id.widget_pet_status, View.VISIBLE);
-            } else {
-                views.setViewVisibility(R.id.widget_pet_status, View.GONE);
-            }
+            views.setTextViewText(R.id.widget_pet_status, petStatus);
+            views.setTextColor(
+                R.id.widget_pet_status,
+                Color.parseColor("Idle".equalsIgnoreCase(petStatus) ? "#64748B" : "#FFFFFF")
+            );
 
             JSONArray upgrades = village.optJSONArray("upgrades");
             int upgradeCount = upgrades != null ? upgrades.length() : 0;
@@ -278,19 +304,37 @@ public class VillageAppWidget extends AppWidgetProvider {
                 for (int i = 0; i < ROW_IDS.length; i++) {
                     if (i < upgradeCount) {
                         JSONObject upg = upgrades.getJSONObject(i);
+                        String slotBadge = upg.optString("slotBadge", "[B" + (i + 1) + "]");
+                        String badgeType = upg.optString("badgeType", "gold");
                         String upgName = upg.optString("name", "Upgrade");
                         String targetLvl = upg.optString("targetLvl", "");
                         String finishFormatted = upg.optString("finishFormatted", "");
 
-                        String titleLine = !targetLvl.isEmpty()
-                            ? upgName + " → " + targetLvl
-                            : upgName;
-                        String finishLine = finishFormatted.startsWith("Finishes:")
-                            ? finishFormatted
-                            : "Finishes: " + finishFormatted;
+                        int badgeBgRes = R.drawable.capsule_gold;
+                        String badgeTextColor = "#FBBF24";
+                        if ("purple".equalsIgnoreCase(badgeType) || "hero".equalsIgnoreCase(badgeType)) {
+                            badgeBgRes = R.drawable.capsule_purple;
+                            badgeTextColor = "#E879F9";
+                        } else if ("green".equalsIgnoreCase(badgeType) || "goblin".equalsIgnoreCase(badgeType)) {
+                            badgeBgRes = R.drawable.capsule_green;
+                            badgeTextColor = "#34D399";
+                        }
 
-                        views.setTextViewText(TITLE_IDS[i], titleLine);
-                        views.setTextViewText(FINISH_IDS[i], finishLine);
+                        views.setInt(BADGE_IDS[i], "setBackgroundResource", badgeBgRes);
+                        views.setTextColor(BADGE_IDS[i], Color.parseColor(badgeTextColor));
+                        views.setTextViewText(BADGE_IDS[i], slotBadge);
+
+                        views.setTextViewText(TITLE_IDS[i], upgName);
+
+                        if (!targetLvl.isEmpty()) {
+                            views.setTextViewText(LVL_IDS[i], targetLvl);
+                            views.setViewVisibility(LVL_IDS[i], View.VISIBLE);
+                        } else {
+                            views.setViewVisibility(LVL_IDS[i], View.GONE);
+                        }
+
+                        String cleanFinish = stripPrefix(finishFormatted, "Finishes:");
+                        views.setTextViewText(FINISH_IDS[i], cleanFinish);
                         views.setViewVisibility(ROW_IDS[i], View.VISIBLE);
                     } else {
                         views.setViewVisibility(ROW_IDS[i], View.GONE);

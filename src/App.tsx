@@ -891,6 +891,37 @@ async function scheduleBoostExpiryNotificationsForVillage(
   }
 }
 
+async function scheduleHelperCooldownNotificationsForVillage(
+  villageId: string,
+  builderCooldownEndTime: number | null | undefined,
+  labCooldownEndTime: number | null | undefined
+): Promise<void> {
+  const now = Date.now();
+  if (builderCooldownEndTime && builderCooldownEndTime > now + 1000) {
+    await scheduleExactSlotNotification({
+      villageId,
+      slotKey: 'helper_builder',
+      title: "Builder's Apprentice is Ready! 🔨",
+      body: "Your Builder's Apprentice has finished resting. Open Clash of Clans to assign him!",
+      targetTimestamp: builderCooldownEndTime,
+    });
+  } else {
+    await cancelSlotNotification(villageId, 'helper_builder');
+  }
+
+  if (labCooldownEndTime && labCooldownEndTime > now + 1000) {
+    await scheduleExactSlotNotification({
+      villageId,
+      slotKey: 'helper_lab',
+      title: 'Lab Apprentice is Ready! 🧪',
+      body: 'Your Lab Apprentice is off cooldown. Boost your laboratory research now!',
+      targetTimestamp: labCooldownEndTime,
+    });
+  } else {
+    await cancelSlotNotification(villageId, 'helper_lab');
+  }
+}
+
 async function cancelAllNotificationsForVillage(villageId: string): Promise<void> {
   const map = loadScheduledAlertsMap();
   const storedIds = Array.isArray(map[villageId]) ? map[villageId] : [];
@@ -908,6 +939,8 @@ async function cancelAllNotificationsForVillage(villageId: string): Promise<void
     getSlotNotificationId(villageId, 'boost_builder'),
     getSlotNotificationId(villageId, 'boost_lab'),
     getSlotNotificationId(villageId, 'boost_pet'),
+    getSlotNotificationId(villageId, 'helper_builder'),
+    getSlotNotificationId(villageId, 'helper_lab'),
   ];
 
   const uniqueIds = Array.from(new Set([...storedIds, ...deterministicSlotIds]));
@@ -2551,6 +2584,7 @@ export default function App() {
 
       setBuilderApprentice((prev) => {
         let changed = false;
+        let nextAssigned = prev.assignedSlot;
         let nextActive = prev.activeSessionEndTime;
         let nextCooldown = prev.cooldownEndTime;
 
@@ -2558,20 +2592,30 @@ export default function App() {
           if (!nextCooldown || nextCooldown <= now) {
             nextCooldown = nextActive + 23 * 3600 * 1000;
           }
+          // 1-hour session finished: disable active boost and clear assumed target
           nextActive = null;
+          nextAssigned = null;
           changed = true;
         }
         if (nextCooldown && nextCooldown <= now && !nextActive) {
+          // Cooldown finished: transition to "Ready to Assign" with no assumed target
           nextCooldown = null;
+          nextAssigned = null;
           changed = true;
         }
         return changed
-          ? { ...prev, activeSessionEndTime: nextActive, cooldownEndTime: nextCooldown }
+          ? {
+              ...prev,
+              assignedSlot: nextAssigned,
+              activeSessionEndTime: nextActive,
+              cooldownEndTime: nextCooldown,
+            }
           : prev;
       });
 
       setLabApprentice((prev) => {
         let changed = false;
+        let nextAssigned = prev.assignedSlot;
         let nextActive = prev.activeSessionEndTime;
         let nextCooldown = prev.cooldownEndTime;
 
@@ -2579,15 +2623,24 @@ export default function App() {
           if (!nextCooldown || nextCooldown <= now) {
             nextCooldown = nextActive + 23 * 3600 * 1000;
           }
+          // 1-hour session finished: disable active boost and clear assumed target
           nextActive = null;
+          nextAssigned = null;
           changed = true;
         }
         if (nextCooldown && nextCooldown <= now && !nextActive) {
+          // Cooldown finished: transition to "Ready to Assign" with no assumed target
           nextCooldown = null;
+          nextAssigned = null;
           changed = true;
         }
         return changed
-          ? { ...prev, activeSessionEndTime: nextActive, cooldownEndTime: nextCooldown }
+          ? {
+              ...prev,
+              assignedSlot: nextAssigned,
+              activeSessionEndTime: nextActive,
+              cooldownEndTime: nextCooldown,
+            }
           : prev;
       });
     };
@@ -4053,6 +4106,11 @@ export default function App() {
       undefined,
       nextHelper
     );
+    void scheduleHelperCooldownNotificationsForVillage(
+      activeAccountId,
+      nextHelper.cooldownEndTime,
+      labApprentice.cooldownEndTime
+    );
 
     const targetB = syncedBuilders[slotIdx];
     const targetLabel =
@@ -4098,6 +4156,11 @@ export default function App() {
       getActiveVillageName(activeAccountId),
       undefined,
       nextHelper
+    );
+    void scheduleHelperCooldownNotificationsForVillage(
+      activeAccountId,
+      builderApprentice.cooldownEndTime,
+      nextHelper.cooldownEndTime
     );
 
     const targetTimer = slot === 'main' ? syncedMain : syncedGoblin;
@@ -4147,6 +4210,7 @@ export default function App() {
           : prev.activeSessionEndTime + 23 * 3600 * 1000;
       return {
         ...prev,
+        assignedSlot: null,
         activeSessionEndTime: null,
         cooldownEndTime: nextCooldown,
       };
@@ -4156,6 +4220,8 @@ export default function App() {
   const handleBuilderCooldownExpire = useCallback(() => {
     setBuilderApprentice((prev) => ({
       ...prev,
+      assignedSlot: null,
+      activeSessionEndTime: null,
       cooldownEndTime: null,
     }));
   }, []);
@@ -4170,6 +4236,7 @@ export default function App() {
           : prev.activeSessionEndTime + 23 * 3600 * 1000;
       return {
         ...prev,
+        assignedSlot: null,
         activeSessionEndTime: null,
         cooldownEndTime: nextCooldown,
       };
@@ -4179,6 +4246,8 @@ export default function App() {
   const handleLabCooldownExpire = useCallback(() => {
     setLabApprentice((prev) => ({
       ...prev,
+      assignedSlot: null,
+      activeSessionEndTime: null,
       cooldownEndTime: null,
     }));
   }, []);
@@ -4342,6 +4411,11 @@ export default function App() {
         d.builderBoostEndTime,
         d.labBoostEndTime,
         d.petBoostEndTime
+      );
+      void scheduleHelperCooldownNotificationsForVillage(
+        profile.id,
+        d.builderApprentice?.cooldownEndTime ?? null,
+        d.labApprentice?.cooldownEndTime ?? null
       );
     });
 
@@ -4593,8 +4667,9 @@ export default function App() {
       }
     }
 
-    // Set Builder's Apprentice state to "Working" if an active 1-hour session is ongoing,
-    // or "Cooldown" if waiting for the next daily cycle.
+    // Set Builder's Apprentice state to "Working" ONLY if an active 1-hour session is currently ongoing.
+    // If resting on cooldown (`helper_cooldown > 0` with no active session) or ready (`helper_cooldown === 0`),
+    // do NOT assume a target (`assignedSlot: null`) until manually assigned or actively working.
     let builderActiveSessionSec = 0;
     if (detectedBuilderHelperSlot !== null) {
       if (explicitBuilderSessionSec > 0) {
@@ -4603,15 +4678,13 @@ export default function App() {
         builderActiveSessionSec = Math.min(3600, detectedBuilderItemHelperTimer);
       } else if (parsedBuilderCooldownSec > 82800) {
         builderActiveSessionSec = Math.min(3600, parsedBuilderCooldownSec - 82800);
-      } else if (parsedBuilderCooldownSec === 0) {
-        builderActiveSessionSec = 3600;
       }
     }
 
     const nextBuilderApprentice: BuilderApprenticeState = {
       id: 93000000,
       level: parsedBuilderHelperLvl,
-      assignedSlot: detectedBuilderHelperSlot,
+      assignedSlot: builderActiveSessionSec > 0 ? detectedBuilderHelperSlot : null,
       activeSessionEndTime:
         builderActiveSessionSec > 0 ? importNow + builderActiveSessionSec * 1000 : null,
       cooldownEndTime:
@@ -4663,15 +4736,13 @@ export default function App() {
         labActiveSessionSec = Math.min(3600, detectedLabItemHelperTimer);
       } else if (parsedLabCooldownSec > 82800) {
         labActiveSessionSec = Math.min(3600, parsedLabCooldownSec - 82800);
-      } else if (parsedLabCooldownSec === 0) {
-        labActiveSessionSec = 3600;
       }
     }
 
     const nextLabApprentice: LabApprenticeState = {
       id: 93000001,
       level: parsedLabHelperLvl,
-      assignedSlot: detectedLabHelperSlot,
+      assignedSlot: labActiveSessionSec > 0 ? detectedLabHelperSlot : null,
       activeSessionEndTime:
         labActiveSessionSec > 0 ? importNow + labActiveSessionSec * 1000 : null,
       cooldownEndTime:
@@ -4702,13 +4773,18 @@ export default function App() {
       ? newAccountName
       : getActiveVillageName(activeAccountId);
 
-    // Schedule active boost expiry notifications via @capacitor/local-notifications
+    // Schedule active boost expiry & helper cooldown notifications via @capacitor/local-notifications
     void scheduleBoostExpiryNotificationsForVillage(
       targetVillageId,
       targetVillageName,
       nextBuilderBoostEndTime,
       nextLabBoostEndTime,
       nextPetBoostEndTime
+    );
+    void scheduleHelperCooldownNotificationsForVillage(
+      targetVillageId,
+      nextBuilderApprentice.cooldownEndTime,
+      nextLabApprentice.cooldownEndTime
     );
 
     const { computedResults, computedSavedText } = runCalculationWithData(

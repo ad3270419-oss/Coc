@@ -1576,8 +1576,7 @@ function getRemainingBoostSeconds(boostEndTime: number | null | undefined, now =
 }
 
 export function getHelperSpeedMultiplier(level: number): number {
-  const clamped = Math.min(12, Math.max(1, Math.floor(level || 1)));
-  return clamped === 1 ? 2 : clamped;
+  return Math.min(12, Math.max(1, Math.floor(level || 1)));
 }
 
 export interface HelperCycleSnapshot {
@@ -1746,22 +1745,39 @@ export function getHelperBoostIntervalsFromNow(
         intervals.push({ startSec: start, endSec: end });
       }
     }
+    return intervals;
+  }
+
+  // Fallback: helper is recurrently assigned with 0 cooldown remaining (ready immediately)
+  if (isRecurrent && !activeEndMs && !coolEndMs) {
+    for (let start = 0; start < horizonSec; start += 86400) {
+      const end = Math.min(horizonSec, start + 3600);
+      if (end > start) {
+        intervals.push({ startSec: start, endSec: end });
+      }
+    }
   }
 
   return intervals;
 }
 
+/**
+ * Builds combined real-time segments where:
+ * - Primary Builder / Lab always works at 1x base speed.
+ * - A Level `L` Helper works at `Lx` bonus speed for 1 hour (saving `L` hours in 1 real hour),
+ *   so total progress rate during the 1-hour helper window is `1 + L` (or `potionRate + L` if a potion is also active).
+ */
 function buildCombinedBoostSegments(
   potionBoostSecs: number,
   potionRate: number,
   helperIntervals: Array<{ startSec: number; endSec: number }>,
-  helperRate: number,
+  helperBonusMultiplier: number,
   maxTimeSec: number
 ): Array<{ startSec: number; endSec: number; rate: number }> {
   if (maxTimeSec <= 0) return [];
   const pSec = potionBoostSecs > 0 && potionRate > 1 ? Math.min(maxTimeSec, potionBoostSecs) : 0;
   const validHelper =
-    helperRate > 1
+    helperBonusMultiplier >= 1
       ? helperIntervals
           .filter((iv) => iv.endSec > 0 && iv.startSec < maxTimeSec && iv.endSec > iv.startSec)
           .map((iv) => ({
@@ -1788,11 +1804,11 @@ function buildCombinedBoostSegments(
     const hActive = validHelper.some((iv) => mid >= iv.startSec && mid <= iv.endSec);
     const rate =
       pActive && hActive
-        ? potionRate + (helperRate - 1)
+        ? potionRate + helperBonusMultiplier
         : pActive
         ? potionRate
         : hActive
-        ? helperRate
+        ? 1 + helperBonusMultiplier
         : 1;
     segments.push({ startSec, endSec, rate });
   }
@@ -1845,7 +1861,7 @@ export function calcHelperSessionRealTimeSeconds(params: {
       : [];
 
   // Pure potion boost (or unboosted) when no helper intervals apply to this slot
-  if (helperIntervals.length === 0 || H <= 1) {
+  if (helperIntervals.length === 0 || H < 1) {
     return potionRate === 24
       ? calc24xRealTimeSeconds(remainingUpgradeSeconds, potionCount, activePotionBoostSeconds)
       : calc10xRealTimeSeconds(remainingUpgradeSeconds, potionCount, activePotionBoostSeconds);
@@ -2016,7 +2032,7 @@ function computeTimeParts(
   const helperIntervals =
     helper && isHelperAssignedToSlot
       ? getHelperBoostIntervalsFromNow(helper, true, now, totalRealRemSec + 60)
-      : helperBoostEndTime && helperBoostEndTime > now && H > 1
+      : helperBoostEndTime && helperBoostEndTime > now && H >= 1
       ? [{ startSec: 0, endSec: (helperBoostEndTime - now) / 1000 }]
       : [];
 
@@ -2126,11 +2142,11 @@ const LiveHudTicker: React.FC<{
         helper && isHelperAssignedToSlot ? getHelperCycleStateAt(helper, now) : null;
       const hWorking =
         cycle !== null
-          ? cycle.isWorkingNow && hRate > 1
-          : !!helperBoostEndTime && helperBoostEndTime > now && hRate > 1;
+          ? cycle.isWorkingNow && hRate >= 1
+          : !!helperBoostEndTime && helperBoostEndTime > now && hRate >= 1;
 
       if (pActive && hWorking) {
-        const combined = potionSpeedMultiplier + (hRate - 1);
+        const combined = potionSpeedMultiplier + hRate;
         return {
           text: `⚡ ${combined}x Boost Running (${potionSpeedMultiplier}x + ${hRate}x)`,
           isHelperResting: false,
@@ -2150,7 +2166,7 @@ const LiveHudTicker: React.FC<{
           isHelperResting: false,
         };
       }
-      if (cycle && cycle.isRecurrentlyAssigned && cycle.cooldownRemSec > 0 && hRate > 1) {
+      if (cycle && cycle.isRecurrentlyAssigned && cycle.cooldownRemSec > 0 && hRate >= 1) {
         return {
           text: `${helperIcon} ${hRate}x Helper Assigned (Next 1h in ${formatBoostHHMM(
             cycle.cooldownRemSec
@@ -2602,7 +2618,7 @@ const HelperObsidianCard: React.FC<{
   const activeRemSec = cycleState.activeRemSec;
   const cooldownRemSec = cycleState.cooldownRemSec;
   const speedMultiplier = getHelperSpeedMultiplier(level);
-  const netSavedHours = speedMultiplier - 1;
+  const netSavedHours = speedMultiplier;
   const isWorking = cycleState.isWorkingNow && !!targetName;
   const isOnCooldown = !isWorking && cooldownRemSec > 0;
 
@@ -5240,9 +5256,8 @@ export default function App() {
     const isBuilderHelperRecurrent =
       detectedBuilderHelperSlot !== null &&
       Boolean(
-        detectedBuilderHelperItem?.helper_recurrent ||
-          rawBuilderApprentice?.helper_recurrent ||
-          hasHelperAssignedOnItem(detectedBuilderHelperItem)
+        detectedBuilderHelperItem?.helper_recurrent === true ||
+          rawBuilderApprentice?.helper_recurrent === true
       );
 
     const shouldKeepBuilderHelperSlot =
@@ -5342,13 +5357,10 @@ export default function App() {
     const isLabHelperRecurrent =
       detectedLabHelperSlot !== null &&
       Boolean(
-        standardLabItem?.helper_recurrent ||
-          goblinLabItem?.helper_recurrent ||
-          labBuildingItem?.helper_recurrent ||
-          rawLabApprentice?.helper_recurrent ||
-          hasHelperAssignedOnItem(standardLabItem) ||
-          hasHelperAssignedOnItem(goblinLabItem) ||
-          hasHelperAssignedOnItem(labBuildingItem)
+        standardLabItem?.helper_recurrent === true ||
+          goblinLabItem?.helper_recurrent === true ||
+          labBuildingItem?.helper_recurrent === true ||
+          rawLabApprentice?.helper_recurrent === true
       );
 
     const shouldKeepLabHelperSlot =

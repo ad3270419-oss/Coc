@@ -686,12 +686,33 @@ export function getSlotNotificationId(villageId: string, slotKey: string): numbe
   return ((hash >>> 0) % 2147480000) + 1000;
 }
 
+let defaultChannelCreated = false;
+
+export async function ensureDefaultNotificationChannel(): Promise<void> {
+  if (defaultChannelCreated) return;
+  try {
+    await LocalNotifications.createChannel({
+      id: 'default',
+      name: 'Upgrade Reminders',
+      description: 'Clash of Clans builder, laboratory, pet house, and helper completion alerts',
+      importance: 5,
+      visibility: 1,
+      vibration: true,
+      sound: 'default',
+    });
+    defaultChannelCreated = true;
+  } catch {
+    // Ignore errors in web preview environments where native plugin is unavailable
+  }
+}
+
 export async function requestNotificationPermissions(): Promise<void> {
   try {
     await LocalNotifications.requestPermissions();
   } catch {
     // Ignore errors in web preview environments where native plugin is unavailable
   }
+  await ensureDefaultNotificationChannel();
 }
 
 async function cancelSlotNotification(villageId: string, slotKey: string): Promise<void> {
@@ -712,33 +733,36 @@ async function scheduleExactSlotNotification(params: {
   targetTimestamp: number | null | undefined;
 }): Promise<void> {
   const { villageId, slotKey, title, body, targetTimestamp } = params;
-  const notificationId = getSlotNotificationId(villageId, slotKey);
+  const uniqueNumericId = Math.abs(Math.trunc(getSlotNotificationId(villageId, slotKey))) || 1001;
 
   // Always clear any previously scheduled notification for this specific slot first
   try {
-    await LocalNotifications.cancel({ notifications: [{ id: notificationId }] });
+    await LocalNotifications.cancel({ notifications: [{ id: uniqueNumericId }] });
   } catch {
     // Ignore errors in non-native environments
   }
 
-  if (!targetTimestamp || targetTimestamp <= Date.now() + 1000) {
-    untrackVillageNotificationId(villageId, notificationId);
+  const finishEpochMs = typeof targetTimestamp === 'number' ? Math.trunc(targetTimestamp) : 0;
+  if (!finishEpochMs || finishEpochMs <= Date.now() + 1000) {
+    untrackVillageNotificationId(villageId, uniqueNumericId);
     return;
   }
 
-  trackVillageNotificationId(villageId, notificationId);
+  await ensureDefaultNotificationChannel();
+  trackVillageNotificationId(villageId, uniqueNumericId);
 
   try {
     await LocalNotifications.schedule({
       notifications: [
         {
-          id: notificationId,
+          id: uniqueNumericId,
           title,
           body,
           schedule: {
-            at: new Date(targetTimestamp),
+            at: new Date(finishEpochMs),
             allowWhileIdle: true,
           },
+          channelId: 'default',
           sound: 'default',
         },
       ],
@@ -3283,7 +3307,8 @@ export default function App() {
     targetVillageId: string = activeAccountId,
     targetVillageName: string = getActiveVillageName(activeAccountId),
     overrideLabBoostSeconds?: number,
-    overrideLabHelper?: LabApprenticeState
+    overrideLabHelper?: LabApprenticeState,
+    skipNotifications = false
   ) => {
     const activeLabBoostSecs =
       typeof overrideLabBoostSeconds === 'number'
@@ -3302,14 +3327,16 @@ export default function App() {
     setGoblinLabFormattedDate(res.nextGoblinDate);
     setLabSavedText(res.nextLabSavedText);
 
-    void scheduleLabNotificationsForVillage(
-      targetVillageId,
-      targetVillageName,
-      mainTimerVal,
-      res.nextMainTs,
-      goblinTimerVal,
-      res.nextGoblinTs
-    );
+    if (!skipNotifications) {
+      void scheduleLabNotificationsForVillage(
+        targetVillageId,
+        targetVillageName,
+        mainTimerVal,
+        res.nextMainTs,
+        goblinTimerVal,
+        res.nextGoblinTs
+      );
+    }
 
     return res;
   };
@@ -3535,7 +3562,8 @@ export default function App() {
     potionCount: number,
     targetVillageId: string = activeAccountId,
     targetVillageName: string = getActiveVillageName(activeAccountId),
-    overridePetBoostSeconds?: number
+    overridePetBoostSeconds?: number,
+    skipNotifications = false
   ) => {
     const activePetBoostSecs =
       typeof overridePetBoostSeconds === 'number'
@@ -3546,12 +3574,14 @@ export default function App() {
     setPetFormattedDate(res.nextPetDate);
     setPetSavedText(res.nextPetSavedText);
 
-    void schedulePetNotificationForVillage(
-      targetVillageId,
-      targetVillageName,
-      petTimerVal,
-      res.nextPetTs
-    );
+    if (!skipNotifications) {
+      void schedulePetNotificationForVillage(
+        targetVillageId,
+        targetVillageName,
+        petTimerVal,
+        res.nextPetTs
+      );
+    }
 
     return res;
   };
@@ -3860,7 +3890,8 @@ export default function App() {
     targetVillageId: string = activeAccountId,
     targetVillageName: string = getActiveVillageName(activeAccountId),
     overrideBuilderBoostSeconds?: number,
-    overrideBuilderHelper?: BuilderApprenticeState
+    overrideBuilderHelper?: BuilderApprenticeState,
+    skipNotifications = false
   ): { computedResults: LockedResultItem[]; computedSavedText: string } => {
     const potions = Math.max(0, parseInt(targetPotionsStr, 10) || 0);
     const activeBuilderBoostSecs =
@@ -3879,11 +3910,13 @@ export default function App() {
       false
     );
 
-    void scheduleBuilderNotificationsForVillage(
-      targetVillageId,
-      targetVillageName,
-      computedResults
-    );
+    if (!skipNotifications) {
+      void scheduleBuilderNotificationsForVillage(
+        targetVillageId,
+        targetVillageName,
+        computedResults
+      );
+    }
 
     if (computedResults.length === 0) {
       setLockedResults([]);
@@ -4773,20 +4806,6 @@ export default function App() {
       ? newAccountName
       : getActiveVillageName(activeAccountId);
 
-    // Schedule active boost expiry & helper cooldown notifications via @capacitor/local-notifications
-    void scheduleBoostExpiryNotificationsForVillage(
-      targetVillageId,
-      targetVillageName,
-      nextBuilderBoostEndTime,
-      nextLabBoostEndTime,
-      nextPetBoostEndTime
-    );
-    void scheduleHelperCooldownNotificationsForVillage(
-      targetVillageId,
-      nextBuilderApprentice.cooldownEndTime,
-      nextLabApprentice.cooldownEndTime
-    );
-
     const { computedResults, computedSavedText } = runCalculationWithData(
       'multi',
       nextBuilderSliderCount,
@@ -4795,7 +4814,8 @@ export default function App() {
       targetVillageId,
       targetVillageName,
       builderBoostSeconds,
-      nextBuilderApprentice
+      nextBuilderApprentice,
+      true
     );
 
     const labSched = computeLabSchedule(
@@ -4805,15 +4825,53 @@ export default function App() {
       targetVillageId,
       targetVillageName,
       labBoostSeconds,
-      nextLabApprentice
+      nextLabApprentice,
+      true
     );
     const petSched = computePetSchedule(
       nextPetTimer,
       targetPetPotionsCount,
       targetVillageId,
       targetVillageName,
-      petBoostSeconds
+      petBoostSeconds,
+      true
     );
+
+    // Clear all previous pending notifications for this village and re-schedule fresh exact alarms
+    void (async () => {
+      await cancelAllNotificationsForVillage(targetVillageId);
+      await scheduleBuilderNotificationsForVillage(
+        targetVillageId,
+        targetVillageName,
+        computedResults
+      );
+      await scheduleLabNotificationsForVillage(
+        targetVillageId,
+        targetVillageName,
+        nextLabTimer,
+        labSched.nextMainTs,
+        nextGoblinLabTimer,
+        labSched.nextGoblinTs
+      );
+      await schedulePetNotificationForVillage(
+        targetVillageId,
+        targetVillageName,
+        nextPetTimer,
+        petSched.nextPetTs
+      );
+      await scheduleBoostExpiryNotificationsForVillage(
+        targetVillageId,
+        targetVillageName,
+        nextBuilderBoostEndTime,
+        nextLabBoostEndTime,
+        nextPetBoostEndTime
+      );
+      await scheduleHelperCooldownNotificationsForVillage(
+        targetVillageId,
+        nextBuilderApprentice.cooldownEndTime,
+        nextLabApprentice.cooldownEndTime
+      );
+    })();
 
     setLabTimer(nextLabTimer);
     setGoblinLabTimer(nextGoblinLabTimer);

@@ -1,9 +1,12 @@
 package com.cocpotion.calculator;
 
+import android.content.Context;
 import android.graphics.Color;
 import android.os.Bundle;
 import android.view.View;
 import android.view.Window;
+import android.webkit.JavascriptInterface;
+import android.webkit.WebView;
 import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
 import com.getcapacitor.BridgeActivity;
@@ -27,6 +30,34 @@ public class MainActivity extends BridgeActivity {
                 controller.setAppearanceLightNavigationBars(false);
             }
         }
+
+        if (getBridge() != null && getBridge().getWebView() != null) {
+            WebView webView = getBridge().getWebView();
+            webView.addJavascriptInterface(
+                new ClashWidgetJsBridge(getApplicationContext()),
+                "ClashWidgetBridge"
+            );
+        }
+    }
+
+    @Override
+    public void onResume() {
+        super.onResume();
+        VillageAppWidget.updateAllWidgets(getApplicationContext());
+    }
+
+    public static class ClashWidgetJsBridge {
+        private final Context appContext;
+
+        public ClashWidgetJsBridge(Context context) {
+            this.appContext = context;
+        }
+
+        @JavascriptInterface
+        public void syncVillages(String villagesJson, int activeIndex) {
+            VillageAppWidget.saveWidgetDataAndRefresh(appContext, villagesJson, activeIndex);
+        }
     }
 }
+
 

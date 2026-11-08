@@ -60,6 +60,20 @@
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
         </receiver>
+
+        <!-- Home Screen Village Status Widget -->
+        <receiver
+            android:name=".VillageAppWidget"
+            android:exported="true"
+            android:label="Clash Planner Status">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="com.cocpotion.calculator.ACTION_SWITCH_WIDGET_ACCOUNT" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/village_widget_info" />
+        </receiver>
     </application>
 
     <!-- Permissions -->

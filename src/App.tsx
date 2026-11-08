@@ -233,6 +233,17 @@ interface SavedState {
   // Helpers / Apprentices State (93000000 & 93000001)
   builderApprentice?: BuilderApprenticeState;
   labApprentice?: LabApprenticeState;
+  // Town Hall Level & Last Synced Clock String for Android Home Screen Widget
+  thLevel?: number;
+  lastSynced?: string;
+}
+
+declare global {
+  interface Window {
+    ClashWidgetBridge?: {
+      syncVillages: (villagesJson: string, activeIndex: number) => void;
+    };
+  }
 }
 
 interface VillageProfile {
@@ -1456,6 +1467,11 @@ function normalizeSavedState(
           : parsed.labApprentice?.assignedSlot === 'main' ||
             parsed.labApprentice?.assignedSlot === 'goblin',
     },
+    thLevel:
+      typeof parsed.thLevel === 'number' && parsed.thLevel >= 1 && parsed.thLevel <= 25
+        ? Math.floor(parsed.thLevel)
+        : undefined,
+    lastSynced: typeof parsed.lastSynced === 'string' ? parsed.lastSynced : undefined,
   };
 }
 
@@ -1937,6 +1953,183 @@ function formatCompletionDate(timestamp: number): string {
     minute: '2-digit',
     hour12: true,
   });
+}
+
+function formatWidgetClockTime(timestamp: number): string {
+  return new Date(timestamp).toLocaleTimeString('en-US', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true,
+  });
+}
+
+function formatWidgetStaticFinishTime(timestamp: number, now = Date.now()): string {
+  const targetDate = new Date(timestamp);
+  const nowDate = new Date(now);
+  const timePart = targetDate.toLocaleTimeString('en-US', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true,
+  });
+
+  const startOfToday = new Date(
+    nowDate.getFullYear(),
+    nowDate.getMonth(),
+    nowDate.getDate()
+  ).getTime();
+  const startOfTargetDay = new Date(
+    targetDate.getFullYear(),
+    targetDate.getMonth(),
+    targetDate.getDate()
+  ).getTime();
+  const dayDiff = Math.round((startOfTargetDay - startOfToday) / 86400000);
+
+  if (dayDiff === 0) {
+    return `Today, ${timePart}`;
+  }
+  if (dayDiff === 1) {
+    return `Tomorrow, ${timePart}`;
+  }
+  const datePart = targetDate.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+  });
+  return `${datePart}, ${timePart}`;
+}
+
+function resolveWidgetThLabel(d: SavedState, profileName: string): string {
+  if (typeof d.thLevel === 'number' && d.thLevel >= 1) {
+    return `TH ${d.thLevel}`;
+  }
+  const nameMatch = profileName.match(/TH\s*(\d{1,2})/i);
+  if (nameMatch && nameMatch[1]) {
+    return `TH ${nameMatch[1]}`;
+  }
+  return 'TH 17';
+}
+
+function syncAllVillagesToNativeWidget(
+  allAccounts: VillageProfile[],
+  currentActiveAccountId: string
+): void {
+  try {
+    const now = Date.now();
+    const activeIdx = Math.max(
+      0,
+      allAccounts.findIndex((a) => a.id === currentActiveAccountId)
+    );
+
+    const widgetVillagesPayload = allAccounts.map((profile) => {
+      const d = profile.data || createDefaultSavedState();
+      const thLevel = resolveWidgetThLabel(d, profile.name);
+      const tag = profile.tag?.trim() || '#VILLAGE';
+
+      const activeResults = (d.lockedResults || [])
+        .filter((r) => r && typeof r.targetTimestamp === 'number' && r.targetTimestamp > now)
+        .sort((a, b) => a.targetTimestamp - b.targetTimestamp);
+
+      const regularCap = Math.min(6, Math.max(1, d.numBuilders || 6));
+      const busyRegularCount = activeResults.filter((r) => !r.isGoblin).length;
+      const isGoblinBusy = activeResults.some((r) => r.isGoblin);
+      const freeRegularCount = Math.max(0, regularCap - busyRegularCount);
+
+      let buildersStatus = '';
+      if (freeRegularCount === 0) {
+        buildersStatus = isGoblinBusy
+          ? `${busyRegularCount}/${regularCap} + Goblin Busy`
+          : `${busyRegularCount}/${regularCap} Busy`;
+      } else {
+        buildersStatus = `${busyRegularCount}/${regularCap} Active (${freeRegularCount} Free)`;
+      }
+
+      const activeBoostParts: string[] = [];
+      if (d.builderBoostEndTime && d.builderBoostEndTime > now) {
+        activeBoostParts.push('Builder Potion Active (10x)');
+      }
+      if (d.labBoostEndTime && d.labBoostEndTime > now) {
+        activeBoostParts.push('Research Potion Active (24x)');
+      }
+      if (d.petBoostEndTime && d.petBoostEndTime > now) {
+        activeBoostParts.push('Pet Potion Active (24x)');
+      }
+      const bHelperCycle = getHelperCycleStateAt(d.builderApprentice, now);
+      const lHelperCycle = getHelperCycleStateAt(d.labApprentice, now);
+      if (activeBoostParts.length === 0 && (bHelperCycle.isWorkingNow || lHelperCycle.isWorkingNow)) {
+        const mult = bHelperCycle.isWorkingNow
+          ? getHelperSpeedMultiplier(d.builderApprentice?.level || 8)
+          : getHelperSpeedMultiplier(d.labApprentice?.level || 8);
+        activeBoostParts.push(`Helper Boost Active (${mult}x)`);
+      }
+
+      const boostStatus =
+        activeBoostParts.length > 0 ? activeBoostParts[0] : 'No Active Boosts';
+
+      let labStatus = 'Lab: Idle';
+      if (d.targetLabTimestamp && d.targetLabTimestamp > now) {
+        const labName = d.labTimer?.upgradeTitle || 'Research';
+        const labTargetLvl =
+          typeof d.labTimer?.upgradeLevel === 'number'
+            ? ` → Lvl ${d.labTimer.upgradeLevel + 1}`
+            : '';
+        labStatus = `${labName}${labTargetLvl} (${formatWidgetStaticFinishTime(
+          d.targetLabTimestamp,
+          now
+        )})`;
+      } else if (d.targetGoblinLabTimestamp && d.targetGoblinLabTimestamp > now) {
+        const gobLabName = d.goblinLabTimer?.upgradeTitle || 'Goblin Research';
+        const gobTargetLvl =
+          typeof d.goblinLabTimer?.upgradeLevel === 'number'
+            ? ` → Lvl ${d.goblinLabTimer.upgradeLevel + 1}`
+            : '';
+        labStatus = `${gobLabName}${gobTargetLvl} (${formatWidgetStaticFinishTime(
+          d.targetGoblinLabTimestamp,
+          now
+        )})`;
+      }
+
+      let petStatus = '';
+      if (d.targetPetTimestamp && d.targetPetTimestamp > now) {
+        const petName = d.petTimer?.upgradeTitle || 'Pet Upgrade';
+        const petTargetLvl =
+          typeof d.petTimer?.upgradeLevel === 'number'
+            ? ` → Lvl ${d.petTimer.upgradeLevel + 1}`
+            : '';
+        petStatus = `${petName}${petTargetLvl} (${formatWidgetStaticFinishTime(
+          d.targetPetTimestamp,
+          now
+        )})`;
+      }
+
+      const upgrades = activeResults.slice(0, 4).map((item) => ({
+        name: item.upgradeTitle || (item.isGoblin ? 'Goblin Builder' : 'Upgrade'),
+        targetLvl:
+          typeof item.upgradeLevel === 'number' ? `Lvl ${item.upgradeLevel + 1}` : '',
+        finishFormatted: formatWidgetStaticFinishTime(item.targetTimestamp, now),
+      }));
+
+      return {
+        name: profile.name,
+        tag,
+        thLevel,
+        buildersStatus,
+        boostStatus,
+        labStatus,
+        petStatus,
+        upgrades,
+        lastSynced: d.lastSynced || formatWidgetClockTime(now),
+      };
+    });
+
+    const serialized = JSON.stringify(widgetVillagesPayload);
+    localStorage.setItem('widget_villages_data', serialized);
+    localStorage.setItem('widget_active_index', String(activeIdx));
+
+    if (typeof window !== 'undefined' && window.ClashWidgetBridge?.syncVillages) {
+      window.ClashWidgetBridge.syncVillages(serialized, activeIdx);
+    }
+  } catch {
+    // Ignore widget sync error in web browser
+  }
 }
 
 function formatSavedSeconds(savedSeconds: number): string {
@@ -2891,6 +3084,8 @@ export default function App() {
   const [labApprentice, setLabApprentice] = useState<LabApprenticeState>(
     () => initial.labApprentice || createDefaultLabApprentice()
   );
+  const [thLevel, setThLevel] = useState<number | undefined>(() => initial.thLevel);
+  const [lastSynced, setLastSynced] = useState<string | undefined>(() => initial.lastSynced);
 
   // Live 1-second clock tick for active boost button labels & helper lifecycle
   const [nowTick, setNowTick] = useState<number>(() => Date.now());
@@ -3197,6 +3392,8 @@ export default function App() {
     );
     setBuilderApprentice(d.builderApprentice || createDefaultBuilderApprentice());
     setLabApprentice(d.labApprentice || createDefaultLabApprentice());
+    setThLevel(d.thLevel);
+    setLastSynced(d.lastSynced);
     setAnimKey((prev) => prev + 1);
   };
 
@@ -3230,6 +3427,8 @@ export default function App() {
         petBoostEndTime,
         builderApprentice,
         labApprentice,
+        thLevel,
+        lastSynced,
       };
 
       // Keep legacy STORAGE_KEY synced with the active village profile
@@ -3244,6 +3443,7 @@ export default function App() {
           accounts: updatedAccounts,
         };
         localStorage.setItem(ACCOUNTS_STORAGE_KEY, JSON.stringify(multiPayload));
+        syncAllVillagesToNativeWidget(updatedAccounts, activeAccountId);
         return updatedAccounts;
       });
     } catch {
@@ -3276,6 +3476,8 @@ export default function App() {
     petBoostEndTime,
     builderApprentice,
     labApprentice,
+    thLevel,
+    lastSynced,
   ]);
 
   // Switch between village profiles when tapping an account pill (pencil icon is isolated)
@@ -5473,6 +5675,15 @@ export default function App() {
       }),
     });
 
+    const townHallBuildingItem = Array.isArray(parsedData.buildings)
+      ? parsedData.buildings.find((b) => Number(b?.data ?? b?.id) === 1000001)
+      : undefined;
+    const parsedThLevel =
+      typeof townHallBuildingItem?.lvl === 'number' && townHallBuildingItem.lvl >= 1
+        ? Math.floor(townHallBuildingItem.lvl)
+        : thLevel;
+    const syncedTimeLabel = formatWidgetClockTime(importNow);
+
     setLabTimer(nextLabTimer);
     setGoblinLabTimer(nextGoblinLabTimer);
     setPetTimer(nextPetTimer);
@@ -5481,6 +5692,8 @@ export default function App() {
     setPetBoostEndTime(nextPetBoostEndTime);
     setBuilderApprentice(nextBuilderApprentice);
     setLabApprentice(nextLabApprentice);
+    setThLevel(parsedThLevel);
+    setLastSynced(syncedTimeLabel);
     setPotionsInput(targetPotions);
     setResearchPotions(targetResPotions);
     setPetPotions(targetPetPotionsCount);
@@ -5512,6 +5725,8 @@ export default function App() {
         petBoostEndTime: nextPetBoostEndTime,
         builderApprentice: nextBuilderApprentice,
         labApprentice: nextLabApprentice,
+        thLevel: parsedThLevel,
+        lastSynced: syncedTimeLabel,
       };
       const newProfile: VillageProfile = {
         id: newAccountId,
@@ -5519,7 +5734,11 @@ export default function App() {
         tag: extractedTag,
         data: newProfileState,
       };
-      setAccounts((prev) => [...prev, newProfile]);
+      setAccounts((prev) => {
+        const nextList = [...prev, newProfile];
+        syncAllVillagesToNativeWidget(nextList, newAccountId);
+        return nextList;
+      });
       setActiveAccountId(newAccountId);
     } else if (extractedTag) {
       // Permanently bind extracted root `tag` to the active account profile on first-time JSON import
@@ -5533,6 +5752,7 @@ export default function App() {
             accounts: updated,
           };
           localStorage.setItem(ACCOUNTS_STORAGE_KEY, JSON.stringify(multiPayload));
+          syncAllVillagesToNativeWidget(updated, activeAccountId);
         } catch {
           // Ignore storage error
         }

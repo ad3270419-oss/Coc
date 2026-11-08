@@ -51,67 +51,23 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x android/gradlew
 
-      - name: Build Release APK with Gradle
-        env:
-          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
-          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+      - name: Build Signed APK with Gradle
         run: |
           cd android
-          ./gradlew assembleRelease --no-daemon --stacktrace
-
-      - name: Align & Sign Release APK (v1 + v2 Signatures)
-        env:
-          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
-          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
-        run: |
-          BUILD_TOOLS_DIR=$(ls -d $ANDROID_HOME/build-tools/* | sort -V | tail -n 1)
-          ZIPALIGN="$BUILD_TOOLS_DIR/zipalign"
-          APKSIGNER="$BUILD_TOOLS_DIR/apksigner"
-
-          if [ -n "$KEYSTORE_BASE64" ]; then
-            echo "$KEYSTORE_BASE64" | base64 --decode > release.keystore
-          else
-            cp android/app/clash-planner.keystore release.keystore
-          fi
-
-          EFF_ALIAS="${KEY_ALIAS:-clashplanner}"
-          EFF_STORE_PASS="${STORE_PASSWORD:-clashplanner123}"
-          EFF_KEY_PASS="${KEY_PASSWORD:-clashplanner123}"
-
-          RAW_APK="android/app/build/outputs/apk/release/app-release.apk"
-          if [ ! -f "$RAW_APK" ]; then
-            RAW_APK="android/app/build/outputs/apk/release/app-release-unsigned.apk"
-          fi
-
-          "$ZIPALIGN" -f -v -p 4 "$RAW_APK" app-release-aligned.apk
-          "$APKSIGNER" sign \
-            --ks release.keystore \
-            --ks-key-alias "$EFF_ALIAS" \
-            --ks-pass "pass:$EFF_STORE_PASS" \
-            --key-pass "pass:$EFF_KEY_PASS" \
-            --v1-signing-enabled true \
-            --v2-signing-enabled true \
-            --out android/app/build/outputs/apk/release/app-release.apk \
-            app-release-aligned.apk
-          "$APKSIGNER" verify --verbose android/app/build/outputs/apk/release/app-release.apk
-          rm -f release.keystore app-release-aligned.apk
+          ./gradlew assembleDebug --no-daemon --stacktrace
 
       - name: Upload APK to Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: Clash-Planner-APK
-          path: android/app/build/outputs/apk/release/app-release.apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
 
       - name: Publish APK to GitHub Releases
         uses: softprops/action-gh-release@v2
         if: always()
         continue-on-error: true
         with:
-          files: android/app/build/outputs/apk/release/app-release.apk
+          files: android/app/build/outputs/apk/debug/app-debug.apk
           tag_name: latest
           name: "Clash Planner APK"
         env:
